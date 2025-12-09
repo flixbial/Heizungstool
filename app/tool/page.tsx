@@ -1,3 +1,4 @@
+// app/tool/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -64,7 +65,6 @@ interface CalcResult {
 
 interface FoerderForm {
   art: "wohn" | "nichtwohn";
-  invest: number;
   wohnKlimaBonus: boolean;
   wohnEinkommensBonus: boolean;
   wohnEffizienzBonus: boolean;
@@ -104,20 +104,19 @@ export default function ToolPage() {
     carrierHP: "Strom Stromix",
     investFossil: 30000,
     effFossil: 90,
-    priceFossil0: 0.1,
+    priceFossil0: 10, // ct/kWh
     incFossil: 3,
     maintFossil: 800,
     investHP: 60000,
     subsidyHP: 15000,
     jaz: 3.0,
-    priceEl0: 0.3,
+    priceEl0: 30, // ct/kWh
     incEl: 2,
     maintHP: 600,
   });
 
   const [foerderForm, setFoerderForm] = useState<FoerderForm>({
     art: "wohn",
-    invest: 25000,
     wohnKlimaBonus: false,
     wohnEinkommensBonus: false,
     wohnEffizienzBonus: false,
@@ -129,7 +128,9 @@ export default function ToolPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [foerderLoading, setFoerderLoading] = useState(false);
-  const [foerderResult, setFoerderResult] = useState<FoerderResult | null>(null);
+  const [foerderResult, setFoerderResult] = useState<FoerderResult | null>(
+    null
+  );
   const [foerderError, setFoerderError] = useState<string | null>(null);
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
@@ -163,7 +164,10 @@ export default function ToolPage() {
     }
   }
 
-  function updateFoerderField<K extends keyof FoerderForm>(key: K, value: any) {
+  function updateFoerderField<K extends keyof FoerderForm>(
+    key: K,
+    value: FoerderForm[K]
+  ) {
     setFoerderForm((prev) => ({
       ...prev,
       [key]: value,
@@ -178,7 +182,8 @@ export default function ToolPage() {
     try {
       const body = {
         ...foerderForm,
-        invest: Number(foerderForm.invest),
+        // Investitionskosten kommen jetzt aus dem Heizungsvergleich:
+        invest: form.investHP,
         area: form.area,
         units: form.units,
       };
@@ -220,8 +225,8 @@ export default function ToolPage() {
         Heizungs-Vergleich &amp; Förderrechner
       </h1>
       <p className="text-slate-600 mb-6">
-        Vergleich fossil vs. Wärmepumpe aus Vermietersicht. Rechenlogik und Fördermodelle
-        laufen vollständig serverseitig.
+        Vergleich fossil vs. Wärmepumpe aus Vermietersicht. Rechenlogik und
+        Fördermodelle laufen vollständig serverseitig.
       </p>
 
       {/* Tabs */}
@@ -350,9 +355,7 @@ export default function ToolPage() {
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
                   value={form.investFossil}
-                  onChange={(e) =>
-                    updateField("investFossil", e.target.value)
-                  }
+                  onChange={(e) => updateField("investFossil", e.target.value)}
                 />
               </div>
               <div>
@@ -388,9 +391,7 @@ export default function ToolPage() {
                     type="number"
                     className="mt-1 w-full border rounded-lg px-2 py-1.5"
                     value={form.incFossil}
-                    onChange={(e) =>
-                      updateField("incFossil", e.target.value)
-                    }
+                    onChange={(e) => updateField("incFossil", e.target.value)}
                   />
                 </div>
               </div>
@@ -402,9 +403,7 @@ export default function ToolPage() {
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
                   value={form.maintFossil}
-                  onChange={(e) =>
-                    updateField("maintFossil", e.target.value)
-                  }
+                  onChange={(e) => updateField("maintFossil", e.target.value)}
                 />
               </div>
               <div className="border-t pt-3 mt-2">
@@ -418,10 +417,7 @@ export default function ToolPage() {
                       className="mt-1 w-full border rounded-lg px-2 py-1.5"
                       value={form.carrierHP}
                       onChange={(e) =>
-                        updateField(
-                          "carrierHP",
-                          e.target.value as CarrierHP
-                        )
+                        updateField("carrierHP", e.target.value as CarrierHP)
                       }
                     >
                       <option value="Strom Stromix">Strom Stromix</option>
@@ -517,9 +513,7 @@ export default function ToolPage() {
             </div>
           </form>
 
-          {error && (
-            <p className="text-xs text-red-600 mb-4">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
 
           {result && (
             <section className="space-y-6">
@@ -615,9 +609,7 @@ export default function ToolPage() {
                       <XAxis dataKey="name" />
                       <YAxis />
                       <Tooltip
-                        formatter={(value: any) =>
-                          formatEuro(Number(value), 0)
-                        }
+                        formatter={(value: any) => formatEuro(Number(value), 0)}
                       />
                       <Legend />
                       <Line
@@ -649,9 +641,7 @@ export default function ToolPage() {
                       <XAxis dataKey="name" />
                       <YAxis />
                       <Tooltip
-                        formatter={(value: any) =>
-                          formatEuro(Number(value), 0)
-                        }
+                        formatter={(value: any) => formatEuro(Number(value), 0)}
                       />
                       <Bar dataKey="kosten" name="Gesamtkosten" />
                     </BarChart>
@@ -668,12 +658,18 @@ export default function ToolPage() {
                     <tr className="border-b">
                       <th className="text-left py-1 pr-2">Jahr</th>
                       <th className="text-right py-1 px-2">CO₂-Preis</th>
-                      <th className="text-right py-1 px-2">Vermieteranteil fossil</th>
-                      <th className="text-right py-1 px-2">Vermieteranteil WP</th>
+                      <th className="text-right py-1 px-2">
+                        Vermieteranteil fossil
+                      </th>
+                      <th className="text-right py-1 px-2">
+                        Vermieteranteil WP
+                      </th>
                       <th className="text-right py-1 px-2">Kosten fossil</th>
                       <th className="text-right py-1 px-2">Kosten WP</th>
                       <th className="text-right py-1 px-2">Delta</th>
-                      <th className="text-right py-1 px-2">kumulierte Einsparung</th>
+                      <th className="text-right py-1 px-2">
+                        kumulierte Einsparung
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -751,14 +747,13 @@ export default function ToolPage() {
               </label>
               <input
                 type="number"
-                className="w-full border rounded-lg px-2 py-1.5"
-                value={foerderForm.invest}
-                onChange={(e) =>
-                  updateFoerderField("invest", Number(e.target.value))
-                }
+                className="w-full border rounded-lg px-2 py-1.5 bg-slate-50"
+                value={form.investHP}
+                readOnly
               />
               <p className="text-[11px] text-slate-500 mt-1">
-                Gebäudefläche und Wohneinheiten werden aus dem Hauptrechner übernommen.
+                Investitionskosten, Gebäudefläche und Wohneinheiten werden aus
+                dem Heizungsrechner übernommen.
               </p>
             </div>
 
@@ -824,7 +819,9 @@ export default function ToolPage() {
               disabled={foerderLoading}
               className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
             >
-              {foerderLoading ? "Berechne Förderung ..." : "Förderung berechnen"}
+              {foerderLoading
+                ? "Berechne Förderung ..."
+                : "Förderung berechnen"}
             </button>
 
             {foerderError && (
@@ -835,9 +832,11 @@ export default function ToolPage() {
           <div className="bg-white border rounded-xl p-4 shadow-sm text-sm">
             {!foerderResult && (
               <p className="text-slate-600">
-                Geben Sie links die Investitionskosten ein und wählen Sie die
-                passende Gebäudeart und Optionen. Nach der Berechnung sehen Sie hier
-                eine Abschätzung von Förderquote, Zuschuss und verbleibender Investition.
+                Geben Sie links die passenden Optionen für das Gebäude an.
+                Nach der Berechnung sehen Sie hier eine Abschätzung von
+                Förderquote, Zuschuss und verbleibender Investition. Die
+                Investitionssumme stammt aus dem Heizungsvergleich
+                (Wärmepumpe).
               </p>
             )}
 
@@ -853,7 +852,9 @@ export default function ToolPage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-slate-500">Geschätzter Zuschuss</div>
+                  <div className="text-xs text-slate-500">
+                    Geschätzter Zuschuss
+                  </div>
                   <div className="text-lg font-semibold">
                     {formatEuro(foerderResult.foerderEuro, 0)}
                   </div>
@@ -874,8 +875,9 @@ export default function ToolPage() {
                       formatEuro(foerderResult.kostenobergrenze, 0)}
                     {foerderResult.begrenztAuf !== null && (
                       <p className="mt-1">
-                        Die eingegebene Investition liegt über der Obergrenze – für die
-                        Berechnung wird nur die Obergrenze berücksichtigt.
+                        Die eingegebene Investition liegt über der Obergrenze –
+                        für die Berechnung wird nur die Obergrenze
+                        berücksichtigt.
                       </p>
                     )}
                   </div>
@@ -888,16 +890,17 @@ export default function ToolPage() {
                       formatEuro(foerderResult.foerderhoechstbetragNWG, 0)}
                     {foerderResult.begrenztAuf !== null && (
                       <p className="mt-1">
-                        Die eingegebene Investition liegt über dem Förderhöchstbetrag –
-                        für die Berechnung wird nur dieser berücksichtigt.
+                        Die eingegebene Investition liegt über dem
+                        Förderhöchstbetrag – für die Berechnung wird nur dieser
+                        berücksichtigt.
                       </p>
                     )}
                   </div>
                 )}
 
                 <p className="text-[11px] text-slate-500">
-                  Alle Angaben ohne Gewähr. Maßgeblich sind die aktuellen Richtlinien
-                  und Zusagen der Förderstellen (z. B. KfW/BAFA).
+                  Alle Angaben ohne Gewähr. Maßgeblich sind die aktuellen
+                  Richtlinien und Zusagen der Förderstellen (z. B. KfW/BAFA).
                 </p>
               </div>
             )}
