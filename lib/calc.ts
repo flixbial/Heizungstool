@@ -185,14 +185,26 @@ function getScenarioPriceArray(scenario: ScenarioName, years: number): number[] 
   const data = SCENARIO_PRICES[scenario] || [];
   const prices: number[] = [];
   const baseYear = new Date().getFullYear();
+
+  // Falls keine Daten existieren → fülle mit 0
+  if (data.length === 0) {
+    return Array.from({ length: years }, () => 0);
+  }
+
   for (let i = 0; i < years; i++) {
     const year = baseYear + i;
-    let entry = data.find(e => e.year === year);
+
+    // passenden Eintrag suchen
+    let entry = data.find((e) => e.year === year);
+
+    // wenn keiner existiert, nimm den letzten gültigen Eintrag
     if (!entry) {
-      entry = data[data.length - 1] || { price: 0 };
+      entry = data[data.length - 1];  // garantiert {year, price}
     }
+
     prices.push(entry.price);
   }
+
   return prices;
 }
 
