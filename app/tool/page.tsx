@@ -369,7 +369,7 @@ export default function ToolPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-slate-700">
-                    Brennstoffpreis heute (€/kWh)
+                    Brennstoffpreis heute (ct/kWh)
                   </label>
                   <input
                     type="number"
@@ -469,7 +469,7 @@ export default function ToolPage() {
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-700">
-                      Strompreis heute (€/kWh)
+                      Strompreis heute (ct/kWh)
                     </label>
                     <input
                       type="number"
