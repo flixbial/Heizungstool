@@ -103,14 +103,14 @@ export default function ToolPage() {
     carrierFossil: "Heizöl",
     carrierHP: "Strom Stromix",
     investFossil: 30000,
-    effFossil: 90,
+    effFossil: 95,
     priceFossil0: 10, // ct/kWh
     incFossil: 3,
     maintFossil: 800,
     investHP: 60000,
     subsidyHP: 15000,
-    jaz: 3.0,
-    priceEl0: 30, // ct/kWh
+    jaz: 3.5,
+    priceEl0: 28, // ct/kWh
     incEl: 2,
     maintHP: 600,
   });
