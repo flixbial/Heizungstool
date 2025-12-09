@@ -100,7 +100,7 @@ export default function ToolPage() {
     units: 4,
     years: 20,
     scenario: "Experten",
-    carrierFossil: "Heizöl",
+    carrierFossil: "Erdgas",
     carrierHP: "Strom Stromix",
     investFossil: 30000,
     effFossil: 95,
