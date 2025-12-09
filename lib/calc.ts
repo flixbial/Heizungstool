@@ -54,10 +54,6 @@ export interface CalcResult {
   cumHP: number[];
 }
 
-// Preise von Cent/kWh in Euro/kWh umrechnen
-const priceFossil0_EUR = input.priceFossil0 / 100;
-const priceEl0_EUR = input.priceEl0 / 100;
-
 const EMISSION_FACTORS: Record<string, number> = {
   "Erdgas": 0.201,
   "Flüssiggas": 0.239,
@@ -264,9 +260,11 @@ export function calculate(input: CalcInput): CalcResult {
   for (let y = 0; y < years; y++) {
     const yearLabel = currentYear + y;
 
-    const priceFossilYear = priceFossil0_EUR * Math.pow(1 + incFossil, y);
+    const priceFossilYear = input.priceFossil0 * Math.pow(1 + incFossil, y)/100;
 
-    const priceElYear = priceEl0_EUR * Math.pow(1 + incEl, y);
+
+    const priceElYear = input.priceEl0 * Math.pow(1 + incEl, y)/100;
+
 
 
     const fuelCostFossil = endEnergyFossil * priceFossilYear;
