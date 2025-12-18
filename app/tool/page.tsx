@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   LineChart,
   Line,
@@ -146,7 +147,7 @@ function getPrintHint(role: Role) {
   };
 }
 
-// ✅ narrative modular (leicht erweiterbar)
+// ✅ leicht erweiterbare Textlogik
 function getNarrative(role: Role, form: FormState, result: CalcResult) {
   const years = form.years ?? 20;
 
@@ -388,7 +389,7 @@ function MiniTotalBarChart({
   );
 }
 
-// ===== Print Modal (Popup-Look) =====
+// ===== Print Modal (Portal an body) =====
 
 function PrintModal({
   open,
@@ -428,13 +429,16 @@ function PrintModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
-    // ✅ FIX: Overlay NICHT "no-print", sonst verschwindet #printArea beim Drucken
-    <div className="print-modal-overlay">
+  if (!open || !mounted) return null;
+
+  const modal = (
+    <div id="print-portal-root" className="print-modal-overlay">
       <div className="print-modal">
-        {/* Toolbar: wird im Print ausgeblendet */}
         <div className="print-modal-bar">
           <div className="text-sm font-semibold">Bericht</div>
           <div className="flex gap-2">
@@ -442,10 +446,8 @@ function PrintModal({
               type="button"
               className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
               onClick={() => {
-                // ✅ Druck erst starten, wenn Layout/Logo gerendert sind
-                requestAnimationFrame(() =>
-                  requestAnimationFrame(() => window.print())
-                );
+                // 2 Frames warten, damit Layout/Logo sicher steht
+                requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
               }}
             >
               Drucken
@@ -460,7 +462,6 @@ function PrintModal({
           </div>
         </div>
 
-        {/* ✅ Nur dieser Bereich wird gedruckt */}
         <div id="printArea" className="report">
           <div className="report-header">
             <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
@@ -565,9 +566,192 @@ function PrintModal({
           </div>
         </div>
       </div>
+    </div>
+  );
 
+  return createPortal(modal, document.body);
+}
+
+export default function ToolPage() {
+  const [tab, setTab] = useState<"vergleich" | "foerder">("vergleich");
+  const [role, setRole] = useState<Role>("vermieter");
+
+  const [form, setForm] = useState<FormState>({
+    heatDemand: 30000,
+    area: 500,
+    units: 4,
+    years: 20,
+    scenario: "Experten",
+    carrierFossil: "Heizöl",
+    carrierHP: "Strom Stromix",
+
+    investFossil: 30000,
+    effFossil: 90,
+    priceFossil0: 10,
+    incFossil: 3,
+    maintFossil: 800,
+
+    investHP: 60000,
+    subsidyHP: 15000,
+    jaz: 3.0,
+    priceEl0: 30,
+    incEl: 2,
+    maintHP: 600,
+  });
+
+  const [foerderForm, setFoerderForm] = useState<FoerderForm>({
+    art: "wohn",
+    wohnKlimaBonus: false,
+    wohnEinkommensBonus: false,
+    wohnEffizienzBonus: false,
+    nwgEffizienzBonus: false,
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<CalcResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [foerderLoading, setFoerderLoading] = useState(false);
+  const [foerderResult, setFoerderResult] = useState<FoerderResult | null>(null);
+  const [foerderError, setFoerderError] = useState<string | null>(null);
+
+  const [subsidyApplied, setSubsidyApplied] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
+
+  function updateField<K extends keyof FormState>(key: K, value: string) {
+    setForm((prev) => ({
+      ...prev,
+      [key]: typeof prev[key] === "number" ? Number(value.replace(",", ".")) : (value as any),
+    }));
+  }
+
+  async function handleCalc(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch("/api/calc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error("Fehler bei der Berechnung");
+      const data = (await res.json()) as CalcResult;
+      setResult(data);
+    } catch (err: any) {
+      setError(err.message ?? "Unbekannter Fehler");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateFoerderField<K extends keyof FoerderForm>(key: K, value: FoerderForm[K]) {
+    setFoerderForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleFoerderCalc(e: React.FormEvent) {
+    e.preventDefault();
+    setFoerderLoading(true);
+    setFoerderError(null);
+    setFoerderResult(null);
+    try {
+      const body = {
+        ...foerderForm,
+        invest: form.investHP,
+        area: form.area,
+        units: form.units,
+      };
+      const res = await fetch("/api/foerder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Fehler bei der Förderberechnung");
+      }
+      const data = (await res.json()) as FoerderResult;
+      setFoerderResult(data);
+      setSubsidyApplied(false);
+    } catch (err: any) {
+      setFoerderError(err.message ?? "Unbekannter Fehler");
+    } finally {
+      setFoerderLoading(false);
+    }
+  }
+
+  const perspective = useMemo(() => {
+    if (!result) return null;
+
+    if (role === "vermieter") {
+      return {
+        label: "Vermieter",
+        totalFossil: result.totalLandlordFossil,
+        totalHP: result.totalLandlordHP,
+        savings: result.savingsLandlord,
+        payback: result.extraInvest <= 0 ? null : result.paybackLandlord,
+        cumFossil: result.cumLandlordFossil,
+        cumHP: result.cumLandlordHP,
+        annualKeyFossil: "landlordAnnualFossil" as const,
+        annualKeyHP: "landlordAnnualHP" as const,
+        cumSavingsKey: "landlordCumSavings" as const,
+        note: "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
+      };
+    }
+    if (role === "mieter") {
+      return {
+        label: "Mieter",
+        totalFossil: result.totalTenantFossil,
+        totalHP: result.totalTenantHP,
+        savings: result.savingsTenant,
+        payback: null,
+        cumFossil: result.cumTenantFossil,
+        cumHP: result.cumTenantHP,
+        annualKeyFossil: "tenantAnnualFossil" as const,
+        annualKeyHP: "tenantAnnualHP" as const,
+        cumSavingsKey: "tenantCumSavings" as const,
+        note: "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
+      };
+    }
+    return {
+      label: "Eigentümer (Selbstnutzer)",
+      totalFossil: result.totalOwnerFossil,
+      totalHP: result.totalOwnerHP,
+      savings: result.savingsOwner,
+      payback: result.extraInvest <= 0 ? null : result.paybackOwner,
+      cumFossil: result.cumOwnerFossil,
+      cumHP: result.cumOwnerHP,
+      annualKeyFossil: "ownerAnnualFossil" as const,
+      annualKeyHP: "ownerAnnualHP" as const,
+      cumSavingsKey: "ownerCumSavings" as const,
+      note: "Eigentümer (Selbstnutzer) trägt Investition, Energie, Wartung und 100% der CO₂-Kosten.",
+    };
+  }, [result, role]);
+
+  const chartData = useMemo(() => {
+    if (!result || !perspective) return [];
+    return result.rows.map((_, idx) => ({
+      name: `J${idx + 1}`,
+      kumFossil: perspective.cumFossil[idx],
+      kumHP: perspective.cumHP[idx],
+    }));
+  }, [result, perspective]);
+
+  const totalChartData = useMemo(() => {
+    if (!perspective) return [];
+    return [
+      { name: "Fossil", kosten: perspective.totalFossil },
+      { name: "Wärmepumpe", kosten: perspective.totalHP },
+    ];
+  }, [perspective]);
+
+  const hint = getPrintHint(role);
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-8 text-sm">
+      {/* ✅ Globale Styles inkl. PRINT – hier einmalig */}
       <style jsx global>{`
-        /* Modal Layout */
         .print-modal-overlay {
           position: fixed;
           inset: 0;
@@ -576,7 +760,7 @@ function PrintModal({
           align-items: center;
           justify-content: center;
           padding: 16px;
-          z-index: 50;
+          z-index: 9999;
         }
         .print-modal {
           width: min(980px, 100%);
@@ -598,7 +782,6 @@ function PrintModal({
           background: #ffffff;
         }
 
-        /* Report Styles */
         .report {
           padding: 20px;
           overflow: auto;
@@ -680,18 +863,28 @@ function PrintModal({
           font-weight: 800;
         }
 
-        /* ✅ PRINT: Toolbar aus, Overlay neutral, nur #printArea sichtbar */
+        /* ✅ Der entscheidende Fix: display:none statt visibility – keine leeren Seiten */
         @media print {
-          .print-modal-bar {
+          /* alles ausblenden ... */
+          body > * {
             display: none !important;
           }
-          .print-modal-overlay {
+
+          /* ... außer dem Portal (liegt direkt unter body) */
+          #print-portal-root {
+            display: block !important;
             position: static !important;
-            inset: auto !important;
             background: transparent !important;
             padding: 0 !important;
           }
-          .print-modal {
+
+          /* Toolbar aus */
+          #print-portal-root .print-modal-bar {
+            display: none !important;
+          }
+
+          /* Modal “entkernen” */
+          #print-portal-root .print-modal {
             height: auto !important;
             width: auto !important;
             border: 0 !important;
@@ -699,222 +892,24 @@ function PrintModal({
             border-radius: 0 !important;
           }
 
-          body * {
-            visibility: hidden !important;
-          }
-          #printArea,
-          #printArea * {
-            visibility: visible !important;
-          }
+          /* Report nicht scrollen im Print */
           #printArea {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
+            overflow: visible !important;
           }
 
           body {
+            margin: 0;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
         }
       `}</style>
-    </div>
-  );
-}
 
-export default function ToolPage() {
-  const [tab, setTab] = useState<"vergleich" | "foerder">("vergleich");
-  const [role, setRole] = useState<Role>("vermieter");
-
-  const [form, setForm] = useState<FormState>({
-    heatDemand: 30000,
-    area: 500,
-    units: 4,
-    years: 20,
-    scenario: "Experten",
-    carrierFossil: "Heizöl",
-    carrierHP: "Strom Stromix",
-
-    investFossil: 30000,
-    effFossil: 90,
-    priceFossil0: 10, // ct/kWh
-    incFossil: 3,
-    maintFossil: 800,
-
-    investHP: 60000,
-    subsidyHP: 15000,
-    jaz: 3.0,
-    priceEl0: 30, // ct/kWh
-    incEl: 2,
-    maintHP: 600,
-  });
-
-  const [foerderForm, setFoerderForm] = useState<FoerderForm>({
-    art: "wohn",
-    wohnKlimaBonus: false,
-    wohnEinkommensBonus: false,
-    wohnEffizienzBonus: false,
-    nwgEffizienzBonus: false,
-  });
-
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<CalcResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [foerderLoading, setFoerderLoading] = useState(false);
-  const [foerderResult, setFoerderResult] = useState<FoerderResult | null>(null);
-  const [foerderError, setFoerderError] = useState<string | null>(null);
-
-  const [subsidyApplied, setSubsidyApplied] = useState(false);
-
-  // ✅ Option A: Popup-Modal im selben Tab
-  const [showPrint, setShowPrint] = useState(false);
-
-  function updateField<K extends keyof FormState>(key: K, value: string) {
-    setForm((prev) => ({
-      ...prev,
-      [key]:
-        typeof prev[key] === "number"
-          ? Number(value.replace(",", "."))
-          : (value as any),
-    }));
-  }
-
-  async function handleCalc(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const res = await fetch("/api/calc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) throw new Error("Fehler bei der Berechnung");
-      const data = (await res.json()) as CalcResult;
-      setResult(data);
-    } catch (err: any) {
-      setError(err.message ?? "Unbekannter Fehler");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function updateFoerderField<K extends keyof FoerderForm>(key: K, value: FoerderForm[K]) {
-    setFoerderForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function handleFoerderCalc(e: React.FormEvent) {
-    e.preventDefault();
-    setFoerderLoading(true);
-    setFoerderError(null);
-    setFoerderResult(null);
-    try {
-      const body = {
-        ...foerderForm,
-        invest: form.investHP, // ✅ aus Heizungsvergleich
-        area: form.area,
-        units: form.units,
-      };
-      const res = await fetch("/api/foerder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Fehler bei der Förderberechnung");
-      }
-      const data = (await res.json()) as FoerderResult;
-      setFoerderResult(data);
-      setSubsidyApplied(false);
-    } catch (err: any) {
-      setFoerderError(err.message ?? "Unbekannter Fehler");
-    } finally {
-      setFoerderLoading(false);
-    }
-  }
-
-  const perspective = useMemo(() => {
-    if (!result) return null;
-
-    if (role === "vermieter") {
-      return {
-        label: "Vermieter",
-        totalFossil: result.totalLandlordFossil,
-        totalHP: result.totalLandlordHP,
-        savings: result.savingsLandlord,
-        payback: result.extraInvest <= 0 ? null : result.paybackLandlord,
-        cumFossil: result.cumLandlordFossil,
-        cumHP: result.cumLandlordHP,
-        annualKeyFossil: "landlordAnnualFossil" as const,
-        annualKeyHP: "landlordAnnualHP" as const,
-        cumSavingsKey: "landlordCumSavings" as const,
-        note:
-          "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
-      };
-    }
-    if (role === "mieter") {
-      return {
-        label: "Mieter",
-        totalFossil: result.totalTenantFossil,
-        totalHP: result.totalTenantHP,
-        savings: result.savingsTenant,
-        payback: null,
-        cumFossil: result.cumTenantFossil,
-        cumHP: result.cumTenantHP,
-        annualKeyFossil: "tenantAnnualFossil" as const,
-        annualKeyHP: "tenantAnnualHP" as const,
-        cumSavingsKey: "tenantCumSavings" as const,
-        note:
-          "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
-      };
-    }
-    return {
-      label: "Eigentümer (Selbstnutzer)",
-      totalFossil: result.totalOwnerFossil,
-      totalHP: result.totalOwnerHP,
-      savings: result.savingsOwner,
-      payback: result.extraInvest <= 0 ? null : result.paybackOwner,
-      cumFossil: result.cumOwnerFossil,
-      cumHP: result.cumOwnerHP,
-      annualKeyFossil: "ownerAnnualFossil" as const,
-      annualKeyHP: "ownerAnnualHP" as const,
-      cumSavingsKey: "ownerCumSavings" as const,
-      note:
-        "Eigentümer (Selbstnutzer) trägt Investition, Energie, Wartung und 100% der CO₂-Kosten.",
-    };
-  }, [result, role]);
-
-  const chartData = useMemo(() => {
-    if (!result || !perspective) return [];
-    return result.rows.map((_, idx) => ({
-      name: `J${idx + 1}`,
-      kumFossil: perspective.cumFossil[idx],
-      kumHP: perspective.cumHP[idx],
-    }));
-  }, [result, perspective]);
-
-  const totalChartData = useMemo(() => {
-    if (!perspective) return [];
-    return [
-      { name: "Fossil", kosten: perspective.totalFossil },
-      { name: "Wärmepumpe", kosten: perspective.totalHP },
-    ];
-  }, [perspective]);
-
-  const hint = getPrintHint(role);
-
-  return (
-    <div className="max-w-6xl mx-auto px-4 py-8 text-sm">
       <h1 className="text-2xl font-semibold mb-1">Heizungs-Vergleich &amp; Förderrechner</h1>
       <p className="text-slate-600 mb-4">
         Vergleich fossil vs. Wärmepumpe. Ergebnisse können je nach Rolle (Eigentümer/Vermieter/Mieter) unterschiedlich ausfallen.
       </p>
 
-      {/* Rolle */}
       <div className="bg-white border rounded-xl p-4 shadow-sm mb-6">
         <label className="block text-xs font-medium text-slate-700 mb-1">Deine Rolle / Zielgruppe</label>
         <select
@@ -931,7 +926,6 @@ export default function ToolPage() {
         </p>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b mb-6 text-sm">
         <button
           className={
@@ -963,51 +957,23 @@ export default function ToolPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-slate-700">Heizwärmebedarf / Energieverbrauch (kWh/a)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.heatDemand}
-                  onChange={(e) => updateField("heatDemand", e.target.value)}
-                />
+                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.heatDemand} onChange={(e) => updateField("heatDemand", e.target.value)} />
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-slate-700">Gebäudefläche (m²)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.area}
-                  onChange={(e) => updateField("area", e.target.value)}
-                />
+                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.area} onChange={(e) => updateField("area", e.target.value)} />
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-slate-700">Wohneinheiten</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.units}
-                  onChange={(e) => updateField("units", e.target.value)}
-                />
+                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.units} onChange={(e) => updateField("units", e.target.value)} />
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-slate-700">Betrachtungszeitraum (Jahre)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.years}
-                  onChange={(e) => updateField("years", e.target.value)}
-                />
+                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.years} onChange={(e) => updateField("years", e.target.value)} />
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-slate-700">CO₂-Preisszenario</label>
-                <select
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.scenario}
-                  onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}
-                >
+                <select className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.scenario} onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}>
                   <option>Sehr niedrig</option>
                   <option>Niedrig</option>
                   <option>Experten</option>
@@ -1015,14 +981,9 @@ export default function ToolPage() {
                   <option>Sehr hoch</option>
                 </select>
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-slate-700">Energiequelle fossile Heizung</label>
-                <select
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.carrierFossil}
-                  onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
-                >
+                <select className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.carrierFossil} onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}>
                   <option value="Erdgas">Erdgas</option>
                   <option value="Flüssiggas">Flüssiggas</option>
                   <option value="Heizöl">Heizöl</option>
@@ -1034,53 +995,27 @@ export default function ToolPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-slate-700">Investitionskosten fossile Heizung (€, einmalig)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.investFossil}
-                  onChange={(e) => updateField("investFossil", e.target.value)}
-                />
+                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.investFossil} onChange={(e) => updateField("investFossil", e.target.value)} />
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-slate-700">Wirkungsgrad fossile Heizung (%)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.effFossil}
-                  onChange={(e) => updateField("effFossil", e.target.value)}
-                />
+                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.effFossil} onChange={(e) => updateField("effFossil", e.target.value)} />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-slate-700">Brennstoffpreis heute (ct/kWh)</label>
-                  <input
-                    type="number"
-                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                    value={form.priceFossil0}
-                    onChange={(e) => updateField("priceFossil0", e.target.value)}
-                  />
+                  <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.priceFossil0} onChange={(e) => updateField("priceFossil0", e.target.value)} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-700">Preissteigerung Brennstoff (%/a)</label>
-                  <input
-                    type="number"
-                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                    value={form.incFossil}
-                    onChange={(e) => updateField("incFossil", e.target.value)}
-                  />
+                  <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.incFossil} onChange={(e) => updateField("incFossil", e.target.value)} />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten fossile Heizung (€/a)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.maintFossil}
-                  onChange={(e) => updateField("maintFossil", e.target.value)}
-                />
+                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.maintFossil} onChange={(e) => updateField("maintFossil", e.target.value)} />
               </div>
 
               <div className="border-t pt-3 mt-2">
@@ -1089,44 +1024,25 @@ export default function ToolPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Stromquelle / Strommix</label>
-                    <select
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.carrierHP}
-                      onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}
-                    >
+                    <select className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.carrierHP} onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}>
                       <option value="Strom Stromix">Strom Stromix</option>
                       <option value="Strom Erneuerbar">Strom Erneuerbar</option>
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700">JAZ (Jahresarbeitszahl)</label>
-                    <input
-                      type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.jaz}
-                      onChange={(e) => updateField("jaz", e.target.value)}
-                    />
+                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.jaz} onChange={(e) => updateField("jaz", e.target.value)} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Investitionskosten WP (brutto, €)</label>
-                    <input
-                      type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.investHP}
-                      onChange={(e) => updateField("investHP", e.target.value)}
-                    />
+                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.investHP} onChange={(e) => updateField("investHP", e.target.value)} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Förderung WP (Zuschuss, €)</label>
-                    <input
-                      type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.subsidyHP}
-                      onChange={(e) => updateField("subsidyHP", e.target.value)}
-                    />
+                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.subsidyHP} onChange={(e) => updateField("subsidyHP", e.target.value)} />
                     <p className="text-[11px] text-slate-500 mt-1">Tipp: Im Förderrechner „Zuschuss übernehmen“ klicken.</p>
                   </div>
                 </div>
@@ -1134,42 +1050,23 @@ export default function ToolPage() {
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Strompreis heute (ct/kWh)</label>
-                    <input
-                      type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.priceEl0}
-                      onChange={(e) => updateField("priceEl0", e.target.value)}
-                    />
+                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.priceEl0} onChange={(e) => updateField("priceEl0", e.target.value)} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Preissteigerung Strom (%/a)</label>
-                    <input
-                      type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.incEl}
-                      onChange={(e) => updateField("incEl", e.target.value)}
-                    />
+                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.incEl} onChange={(e) => updateField("incEl", e.target.value)} />
                   </div>
                 </div>
 
                 <div className="mt-2">
                   <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten WP (€/a)</label>
-                  <input
-                    type="number"
-                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                    value={form.maintHP}
-                    onChange={(e) => updateField("maintHP", e.target.value)}
-                  />
+                  <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.maintHP} onChange={(e) => updateField("maintHP", e.target.value)} />
                 </div>
               </div>
             </div>
 
             <div className="md:col-span-2 flex justify-end mt-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
-              >
+              <button type="submit" disabled={loading} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
                 {loading ? "Berechne ..." : "Berechnen"}
               </button>
             </div>
@@ -1183,11 +1080,7 @@ export default function ToolPage() {
                 <div>
                   <div className="text-sm font-semibold">{hint.title}</div>
                   <div className="text-xs text-slate-600 mt-1">{hint.text}</div>
-                  <div className="text-[11px] text-slate-500 mt-2">
-                    Tipp: Vor dem Drucken einmal „Berechnen“ klicken, damit der Bericht die aktuellen Werte enthält.
-                  </div>
                 </div>
-
                 <button
                   type="button"
                   className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
@@ -1206,26 +1099,15 @@ export default function ToolPage() {
                   <div className="text-xs text-slate-500">Mehrinvestition WP (netto)</div>
                   <div className="text-lg font-semibold">{formatEuro(result.extraInvest, 0)}</div>
                 </div>
-
                 <div className="bg-white border rounded-xl p-4 shadow-sm">
                   <div className="text-xs text-slate-500">Amortisation ({perspective.label})</div>
                   <div className="text-lg font-semibold">
-                    {result.extraInvest <= 0
-                      ? "Keine Mehrinvestition"
-                      : perspective.payback
-                      ? `${perspective.payback}. Jahr`
-                      : "Keine vollständige Amortisation"}
+                    {result.extraInvest <= 0 ? "Keine Mehrinvestition" : perspective.payback ? `${perspective.payback}. Jahr` : "Keine vollständige Amortisation"}
                   </div>
                 </div>
-
                 <div className="bg-white border rounded-xl p-4 shadow-sm">
                   <div className="text-xs text-slate-500">Vorteil/Nachteil ({perspective.label})</div>
-                  <div
-                    className={
-                      "text-lg font-semibold " +
-                      (perspective.savings > 0 ? "text-emerald-700" : perspective.savings < 0 ? "text-red-700" : "")
-                    }
-                  >
+                  <div className={"text-lg font-semibold " + (perspective.savings > 0 ? "text-emerald-700" : perspective.savings < 0 ? "text-red-700" : "")}>
                     {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") + formatEuro(Math.abs(perspective.savings), 0)}
                   </div>
                 </div>
@@ -1262,40 +1144,6 @@ export default function ToolPage() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-              </div>
-
-              <div className="bg-white border rounded-xl p-4 shadow-sm overflow-x-auto">
-                <div className="text-xs text-slate-500 mb-2">Jährliche Übersicht ({perspective.label})</div>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-1 pr-2">Jahr</th>
-                      <th className="text-right py-1 px-2">CO₂-Preis</th>
-                      <th className="text-right py-1 px-2">Kosten fossil</th>
-                      <th className="text-right py-1 px-2">Kosten WP</th>
-                      <th className="text-right py-1 px-2">kumulierte Einsparung</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.rows.map((row) => {
-                      const annualF = (row as any)[perspective.annualKeyFossil] as number;
-                      const annualH = (row as any)[perspective.annualKeyHP] as number;
-                      const cumS = (row as any)[perspective.cumSavingsKey] as number;
-
-                      return (
-                        <tr key={row.year} className="border-b">
-                          <td className="py-1 pr-2">{row.year}</td>
-                          <td className="py-1 px-2 text-right">
-                            {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
-                          </td>
-                          <td className="py-1 px-2 text-right">{formatEuro(annualF, 0)}</td>
-                          <td className="py-1 px-2 text-right">{formatEuro(annualH, 0)}</td>
-                          <td className="py-1 px-2 text-right">{formatEuro(cumS, 0)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
               </div>
 
               <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
@@ -1359,13 +1207,11 @@ export default function ToolPage() {
           </form>
 
           <div className="bg-white border rounded-xl p-4 shadow-sm text-sm">
-            {!foerderResult && (
+            {!foerderResult ? (
               <p className="text-slate-600">
                 Nach der Berechnung kannst du den Zuschuss per Button in den Heizungsrechner übernehmen.
               </p>
-            )}
-
-            {foerderResult && (
+            ) : (
               <div className="space-y-3">
                 <div>
                   <div className="text-xs text-slate-500">Förderquote</div>
