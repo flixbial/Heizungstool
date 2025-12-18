@@ -152,10 +152,25 @@ function getNarrative(role: Role, form: FormState, result: CalcResult) {
 
   const pick = () => {
     if (role === "vermieter")
-      return { label: "Vermieter", savings: result.savingsLandlord, payback: result.paybackLandlord, totalFossil: result.totalLandlordFossil };
+      return {
+        label: "Vermieter",
+        savings: result.savingsLandlord,
+        payback: result.paybackLandlord,
+        totalFossil: result.totalLandlordFossil,
+      };
     if (role === "mieter")
-      return { label: "Mieter", savings: result.savingsTenant, payback: null, totalFossil: result.totalTenantFossil };
-    return { label: "Eigentümer (Selbstnutzer)", savings: result.savingsOwner, payback: result.paybackOwner, totalFossil: result.totalOwnerFossil };
+      return {
+        label: "Mieter",
+        savings: result.savingsTenant,
+        payback: null,
+        totalFossil: result.totalTenantFossil,
+      };
+    return {
+      label: "Eigentümer (Selbstnutzer)",
+      savings: result.savingsOwner,
+      payback: result.paybackOwner,
+      totalFossil: result.totalOwnerFossil,
+    };
   };
 
   const p = pick();
@@ -165,27 +180,28 @@ function getNarrative(role: Role, form: FormState, result: CalcResult) {
   const isNear = abs < 0.03 * Math.max(1, Number(p.totalFossil || 1));
 
   const headline =
-    isNear ? "Ergebnis nahe am Break-even" : isAdvantage ? "Wärmepumpe wirtschaftlich vorteilhaft" : "Wärmepumpe derzeit wirtschaftlich nachteilig";
+    isNear
+      ? "Ergebnis nahe am Break-even"
+      : isAdvantage
+      ? "Wärmepumpe wirtschaftlich vorteilhaft"
+      : "Wärmepumpe derzeit wirtschaftlich nachteilig";
 
   const introByRole: Record<Role, string> = {
-    vermieter:
-      isNear
-        ? `Aus Vermietersicht liegt das Ergebnis nahe am Break-even. Kleine Änderungen bei Förderung, Investition oder CO₂-Preisen können das Ergebnis drehen.`
-        : isAdvantage
-        ? `Aus Vermietersicht ist die Wärmepumpe vorteilhaft: über ${years} Jahre ergibt sich ein Vorteil von ${formatEuro(abs)}.`
-        : `Aus Vermietersicht ist die Wärmepumpe im Szenario nachteilig: über ${years} Jahre ergibt sich ein Nachteil von ${formatEuro(abs)}.`,
-    mieter:
-      isNear
-        ? `Aus Mietersicht liegen die laufenden Kosten nahe beieinander. Das Ergebnis hängt stark an Strompreis, Brennstoffpreis und realer JAZ.`
-        : isAdvantage
-        ? `Als Mieter*in sinken die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`
-        : `Als Mieter*in steigen die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`,
-    eigentuemer:
-      isNear
-        ? `Als Selbstnutzer liegt das Ergebnis nahe am Break-even. Schon kleine Änderungen bei JAZ, Strompreis oder Förderung können die Bewertung umkehren.`
-        : isAdvantage
-        ? `Als Selbstnutzer sparen Sie über ${years} Jahre voraussichtlich ${formatEuro(abs)}.`
-        : `Als Selbstnutzer entsteht über ${years} Jahre voraussichtlich ein Nachteil von ${formatEuro(abs)}.`,
+    vermieter: isNear
+      ? `Aus Vermietersicht liegt das Ergebnis nahe am Break-even. Kleine Änderungen bei Förderung, Investition oder CO₂-Preisen können das Ergebnis drehen.`
+      : isAdvantage
+      ? `Aus Vermietersicht ist die Wärmepumpe vorteilhaft: über ${years} Jahre ergibt sich ein Vorteil von ${formatEuro(abs)}.`
+      : `Aus Vermietersicht ist die Wärmepumpe im Szenario nachteilig: über ${years} Jahre ergibt sich ein Nachteil von ${formatEuro(abs)}.`,
+    mieter: isNear
+      ? `Aus Mietersicht liegen die laufenden Kosten nahe beieinander. Das Ergebnis hängt stark an Strompreis, Brennstoffpreis und realer JAZ.`
+      : isAdvantage
+      ? `Als Mieter*in sinken die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`
+      : `Als Mieter*in steigen die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`,
+    eigentuemer: isNear
+      ? `Als Selbstnutzer liegt das Ergebnis nahe am Break-even. Schon kleine Änderungen bei JAZ, Strompreis oder Förderung können die Bewertung umkehren.`
+      : isAdvantage
+      ? `Als Selbstnutzer sparen Sie über ${years} Jahre voraussichtlich ${formatEuro(abs)}.`
+      : `Als Selbstnutzer entsteht über ${years} Jahre voraussichtlich ein Nachteil von ${formatEuro(abs)}.`,
   };
 
   const drivers =
@@ -403,7 +419,6 @@ function PrintModal({
       ? { fossil: result.cumTenantFossil, hp: result.cumTenantHP }
       : { fossil: result.cumOwnerFossil, hp: result.cumOwnerHP };
 
-  // Optional: ESC schließen
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -416,17 +431,21 @@ function PrintModal({
   if (!open) return null;
 
   return (
-    <div className="print-modal-overlay no-print">
+    // ✅ FIX: Overlay NICHT "no-print", sonst verschwindet #printArea beim Drucken
+    <div className="print-modal-overlay">
       <div className="print-modal">
-        <div className="print-modal-bar no-print">
+        {/* Toolbar: wird im Print ausgeblendet */}
+        <div className="print-modal-bar">
           <div className="text-sm font-semibold">Bericht</div>
           <div className="flex gap-2">
             <button
               type="button"
               className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
               onClick={() => {
-                // sicherstellen, dass Layout steht
-                setTimeout(() => window.print(), 50);
+                // ✅ Druck erst starten, wenn Layout/Logo gerendert sind
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() => window.print())
+                );
               }}
             >
               Drucken
@@ -547,7 +566,6 @@ function PrintModal({
         </div>
       </div>
 
-      {/* Styles */}
       <style jsx global>{`
         /* Modal Layout */
         .print-modal-overlay {
@@ -662,11 +680,25 @@ function PrintModal({
           font-weight: 800;
         }
 
-        /* ✅ PRINT: nur #printArea drucken */
+        /* ✅ PRINT: Toolbar aus, Overlay neutral, nur #printArea sichtbar */
         @media print {
-          .no-print {
+          .print-modal-bar {
             display: none !important;
           }
+          .print-modal-overlay {
+            position: static !important;
+            inset: auto !important;
+            background: transparent !important;
+            padding: 0 !important;
+          }
+          .print-modal {
+            height: auto !important;
+            width: auto !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+
           body * {
             visibility: hidden !important;
           }
@@ -680,6 +712,7 @@ function PrintModal({
             top: 0;
             width: 100%;
           }
+
           body {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
@@ -1146,7 +1179,6 @@ export default function ToolPage() {
 
           {result && perspective && (
             <section className="space-y-6">
-              {/* Druck-Sektion */}
               <div className="bg-white border rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold">{hint.title}</div>
@@ -1165,12 +1197,10 @@ export default function ToolPage() {
                 </button>
               </div>
 
-              {/* Hinweistext */}
               <div className="bg-white border rounded-xl p-4 shadow-sm text-[11px] text-slate-600">
                 <span className="font-medium">{perspective.label}:</span> {perspective.note}
               </div>
 
-              {/* KPIs */}
               <div className="grid md:grid-cols-3 gap-4">
                 <div className="bg-white border rounded-xl p-4 shadow-sm">
                   <div className="text-xs text-slate-500">Mehrinvestition WP (netto)</div>
@@ -1201,7 +1231,6 @@ export default function ToolPage() {
                 </div>
               </div>
 
-              {/* Charts (Screen) */}
               <div className="bg-white border rounded-xl p-4 shadow-sm">
                 <div className="text-xs text-slate-500 mb-2">Kumulierte Kosten ({perspective.label}) – fossil vs. Wärmepumpe</div>
                 <div className="h-64">
@@ -1235,7 +1264,6 @@ export default function ToolPage() {
                 </div>
               </div>
 
-              {/* Tabelle */}
               <div className="bg-white border rounded-xl p-4 shadow-sm overflow-x-auto">
                 <div className="text-xs text-slate-500 mb-2">Jährliche Übersicht ({perspective.label})</div>
                 <table className="w-full text-xs border-collapse">
@@ -1270,14 +1298,7 @@ export default function ToolPage() {
                 </table>
               </div>
 
-              {/* ✅ Modal für Druck */}
-              <PrintModal
-                open={showPrint}
-                onClose={() => setShowPrint(false)}
-                role={role}
-                form={form}
-                result={result}
-              />
+              <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
             </section>
           )}
         </>
