@@ -597,4 +597,273 @@ export default function ToolPage() {
 
           {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
 
-          {
+          {result && perspective && (
+            <section className="space-y-6">
+              {/* ✅ Druck-Sektion */}
+              <div className="bg-white border rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">{hint.title}</div>
+                  <div className="text-xs text-slate-600 mt-1">{hint.text}</div>
+                  <div className="text-[11px] text-slate-500 mt-2">
+                    Tipp: Vor dem Drucken einmal „Berechnen“ klicken, damit der Bericht die aktuellen Werte enthält.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                  onClick={() => {
+                    const payload = {
+                      role,
+                      createdAtISO: new Date().toISOString(),
+                      form,
+                      result,
+                    };
+                    sessionStorage.setItem("heizungstool_report", JSON.stringify(payload));
+                    window.open("/report", "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  Bericht drucken
+                </button>
+              </div>
+
+              {/* Hinweistext */}
+              <div className="bg-white border rounded-xl p-4 shadow-sm text-[11px] text-slate-600">
+                <span className="font-medium">{perspective.label}:</span> {perspective.note}
+              </div>
+
+              {/* KPIs */}
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="bg-white border rounded-xl p-4 shadow-sm">
+                  <div className="text-xs text-slate-500">Mehrinvestition WP (netto)</div>
+                  <div className="text-lg font-semibold">{formatEuro(result.extraInvest, 0)}</div>
+                </div>
+
+                <div className="bg-white border rounded-xl p-4 shadow-sm">
+                  <div className="text-xs text-slate-500">Amortisation ({perspective.label})</div>
+                  <div className="text-lg font-semibold">
+                    {result.extraInvest <= 0
+                      ? "Keine Mehrinvestition"
+                      : perspective.payback
+                      ? `${perspective.payback}. Jahr`
+                      : "Keine vollständige Amortisation"}
+                  </div>
+                </div>
+
+                <div className="bg-white border rounded-xl p-4 shadow-sm">
+                  <div className="text-xs text-slate-500">Vorteil/Nachteil ({perspective.label})</div>
+                  <div
+                    className={
+                      "text-lg font-semibold " +
+                      (perspective.savings > 0 ? "text-emerald-700" : perspective.savings < 0 ? "text-red-700" : "")
+                    }
+                  >
+                    {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") + formatEuro(Math.abs(perspective.savings), 0)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Charts */}
+              <div className="bg-white border rounded-xl p-4 shadow-sm">
+                <div className="text-xs text-slate-500 mb-2">Kumulierte Kosten ({perspective.label}) – fossil vs. Wärmepumpe</div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
+                      <Line type="monotone" dataKey="kumFossil" name="kumuliert fossil" stroke="#ef4444" dot={false} />
+                      <Line type="monotone" dataKey="kumHP" name="kumuliert Wärmepumpe" stroke="#2563eb" dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white border rounded-xl p-4 shadow-sm">
+                <div className="text-xs text-slate-500 mb-2">Gesamtkosten ({perspective.label})</div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={totalChartData}>
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
+                      <Bar dataKey="kosten" name="Gesamtkosten">
+                        {totalChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.name === "Fossil" ? "#ef4444" : "#2563eb"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Tabelle */}
+              <div className="bg-white border rounded-xl p-4 shadow-sm overflow-x-auto">
+                <div className="text-xs text-slate-500 mb-2">Jährliche Übersicht ({perspective.label})</div>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1 pr-2">Jahr</th>
+                      <th className="text-right py-1 px-2">CO₂-Preis</th>
+                      <th className="text-right py-1 px-2">Kosten fossil</th>
+                      <th className="text-right py-1 px-2">Kosten WP</th>
+                      <th className="text-right py-1 px-2">kumulierte Einsparung</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.rows.map((row) => {
+                      const annualF = (row as any)[perspective.annualKeyFossil] as number;
+                      const annualH = (row as any)[perspective.annualKeyHP] as number;
+                      const cumS = (row as any)[perspective.cumSavingsKey] as number;
+
+                      return (
+                        <tr key={row.year} className="border-b">
+                          <td className="py-1 pr-2">{row.year}</td>
+                          <td className="py-1 px-2 text-right">
+                            {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
+                          </td>
+                          <td className="py-1 px-2 text-right">{formatEuro(annualF, 0)}</td>
+                          <td className="py-1 px-2 text-right">{formatEuro(annualH, 0)}</td>
+                          <td className="py-1 px-2 text-right">{formatEuro(cumS, 0)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {tab === "foerder" && (
+        <section className="grid md:grid-cols-2 gap-6">
+          <form onSubmit={handleFoerderCalc} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Gebäudeart</label>
+              <select
+                className="w-full border rounded-lg px-2 py-1.5"
+                value={foerderForm.art}
+                onChange={(e) => updateFoerderField("art", e.target.value as "wohn" | "nichtwohn")}
+              >
+                <option value="wohn">Wohngebäude</option>
+                <option value="nichtwohn">Nichtwohngebäude</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Investitionskosten Wärmepumpe (brutto, €)</label>
+              <input type="number" className="w-full border rounded-lg px-2 py-1.5 bg-slate-50" value={form.investHP} readOnly />
+              <p className="text-[11px] text-slate-500 mt-1">Kommt aus dem Heizungsrechner.</p>
+            </div>
+
+            {foerderForm.art === "wohn" ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-slate-700">Wohngebäude-Optionen (vereinfacht)</p>
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.wohnKlimaBonus}
+                    onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)}
+                  />
+                  Klima-Geschwindigkeitsbonus
+                </label>
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.wohnEinkommensBonus}
+                    onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)}
+                  />
+                  Einkommensbonus
+                </label>
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.wohnEffizienzBonus}
+                    onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)}
+                  />
+                  Effizienzbonus
+                </label>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-slate-700">Nichtwohngebäude-Optionen (vereinfacht)</p>
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.nwgEffizienzBonus}
+                    onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)}
+                  />
+                  Effizienzbonus
+                </label>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={foerderLoading}
+              className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
+            >
+              {foerderLoading ? "Berechne Förderung ..." : "Förderung berechnen"}
+            </button>
+
+            {foerderError && <p className="text-xs text-red-600 mt-2">{foerderError}</p>}
+          </form>
+
+          <div className="bg-white border rounded-xl p-4 shadow-sm text-sm">
+            {!foerderResult && (
+              <p className="text-slate-600">
+                Nach der Berechnung kannst du den Zuschuss per Button in den Heizungsrechner übernehmen.
+              </p>
+            )}
+
+            {foerderResult && (
+              <div className="space-y-3">
+                <div>
+                  <div className="text-xs text-slate-500">Förderquote</div>
+                  <div className="text-lg font-semibold">
+                    {foerderResult.foerderProzent.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-slate-500">Geschätzter Zuschuss</div>
+                  <div className="text-lg font-semibold">{formatEuro(foerderResult.foerderEuro, 0)}</div>
+
+                  <button
+                    type="button"
+                    className={
+                      "w-full mt-2 px-4 py-2 rounded-lg text-sm font-medium " +
+                      (subsidyApplied ? "bg-emerald-600 text-white" : "bg-blue-600 text-white hover:bg-blue-700")
+                    }
+                    onClick={() => {
+                      setForm((prev) => ({
+                        ...prev,
+                        subsidyHP: Math.round(foerderResult.foerderEuro),
+                      }));
+                      setSubsidyApplied(true);
+                      setTab("vergleich"); // ✅ zurückspringen
+                    }}
+                  >
+                    {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss übernehmen"}
+                  </button>
+
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    Übernimmt den Zuschuss in „Förderung WP (Zuschuss, €)“ und springt zurück.
+                  </p>
+                </div>
+
+                <div>
+                  <div className="text-xs text-slate-500">Verbleibende Investition nach Zuschuss</div>
+                  <div className="text-lg font-semibold">{formatEuro(foerderResult.restInvest, 0)}</div>
+                </div>
+
+                <p className="text-[11px] text-slate-500">Alle Angaben ohne Gewähr.</p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
