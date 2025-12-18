@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -146,6 +146,550 @@ function getPrintHint(role: Role) {
   };
 }
 
+// ✅ narrative modular (leicht erweiterbar)
+function getNarrative(role: Role, form: FormState, result: CalcResult) {
+  const years = form.years ?? 20;
+
+  const pick = () => {
+    if (role === "vermieter")
+      return { label: "Vermieter", savings: result.savingsLandlord, payback: result.paybackLandlord, totalFossil: result.totalLandlordFossil };
+    if (role === "mieter")
+      return { label: "Mieter", savings: result.savingsTenant, payback: null, totalFossil: result.totalTenantFossil };
+    return { label: "Eigentümer (Selbstnutzer)", savings: result.savingsOwner, payback: result.paybackOwner, totalFossil: result.totalOwnerFossil };
+  };
+
+  const p = pick();
+  const abs = Math.abs(p.savings || 0);
+  const monatlich = abs / (years * 12);
+  const isAdvantage = (p.savings ?? 0) > 0;
+  const isNear = abs < 0.03 * Math.max(1, Number(p.totalFossil || 1));
+
+  const headline =
+    isNear ? "Ergebnis nahe am Break-even" : isAdvantage ? "Wärmepumpe wirtschaftlich vorteilhaft" : "Wärmepumpe derzeit wirtschaftlich nachteilig";
+
+  const introByRole: Record<Role, string> = {
+    vermieter:
+      isNear
+        ? `Aus Vermietersicht liegt das Ergebnis nahe am Break-even. Kleine Änderungen bei Förderung, Investition oder CO₂-Preisen können das Ergebnis drehen.`
+        : isAdvantage
+        ? `Aus Vermietersicht ist die Wärmepumpe vorteilhaft: über ${years} Jahre ergibt sich ein Vorteil von ${formatEuro(abs)}.`
+        : `Aus Vermietersicht ist die Wärmepumpe im Szenario nachteilig: über ${years} Jahre ergibt sich ein Nachteil von ${formatEuro(abs)}.`,
+    mieter:
+      isNear
+        ? `Aus Mietersicht liegen die laufenden Kosten nahe beieinander. Das Ergebnis hängt stark an Strompreis, Brennstoffpreis und realer JAZ.`
+        : isAdvantage
+        ? `Als Mieter*in sinken die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`
+        : `Als Mieter*in steigen die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`,
+    eigentuemer:
+      isNear
+        ? `Als Selbstnutzer liegt das Ergebnis nahe am Break-even. Schon kleine Änderungen bei JAZ, Strompreis oder Förderung können die Bewertung umkehren.`
+        : isAdvantage
+        ? `Als Selbstnutzer sparen Sie über ${years} Jahre voraussichtlich ${formatEuro(abs)}.`
+        : `Als Selbstnutzer entsteht über ${years} Jahre voraussichtlich ein Nachteil von ${formatEuro(abs)}.`,
+  };
+
+  const drivers =
+    role === "mieter"
+      ? "Treiber sind Strompreis vs. Brennstoffpreis sowie die tatsächlich erreichte Jahresarbeitszahl (JAZ)."
+      : "Treiber sind insbesondere Netto-Investition (nach Förderung), CO₂-Kosten (inkl. Aufteilung) und die JAZ.";
+
+  const paybackText =
+    role !== "mieter" && (result.extraInvest ?? 0) > 0
+      ? p.payback
+        ? `Die Mehrinvestition amortisiert sich nach ca. ${p.payback} Jahren (unter den getroffenen Annahmen).`
+        : "Innerhalb des Betrachtungszeitraums amortisiert sich die Mehrinvestition nicht vollständig."
+      : null;
+
+  const nextStepsByRole: Record<Role, string[]> = {
+    vermieter: [
+      "Förderfähigkeit prüfen (Gebäudeart/Bonusse) und Zuschuss übernehmen.",
+      "Angebote einholen (inkl. Hydraulik/Heizkörpercheck) und Investitionsannahmen validieren.",
+      "Sensitivität prüfen: Strom-/Brennstoffpreise, JAZ, CO₂-Szenario.",
+    ],
+    mieter: [
+      "Auf realistische JAZ achten (Hydraulik, Vorlauftemperatur, Heizflächen).",
+      "Stromtarif/WP-Tarif prüfen und Brennstoffpreise gegenüberstellen.",
+      "Bei Modernisierung: Nebenkosten- und Umlageeffekte transparent klären.",
+    ],
+    eigentuemer: [
+      "Angebote einholen und JAZ realistisch ansetzen (Vorlauf/Heizkörper/Warmwasser).",
+      "Förderung optimieren und Zuschuss in die Rechnung übernehmen.",
+      "Optional: PV/Wärmestromtarif als Hebel berücksichtigen.",
+    ],
+  };
+
+  return {
+    label: p.label,
+    headline,
+    intro: introByRole[role],
+    drivers,
+    paybackText,
+    nextSteps: nextStepsByRole[role],
+  };
+}
+
+// ===== Druckstabile SVG-Grafiken =====
+
+function buildLinePath(values: number[], w: number, h: number, pad: number, maxY: number) {
+  if (!values || values.length === 0) return "";
+  const innerW = w - pad * 2;
+  const innerH = h - pad * 2;
+  const n = values.length;
+
+  const x = (i: number) => pad + (innerW * i) / Math.max(1, n - 1);
+  const y = (v: number) => pad + innerH - (innerH * v) / Math.max(1, maxY);
+
+  let d = `M ${x(0)} ${y(values[0])}`;
+  for (let i = 1; i < n; i++) d += ` L ${x(i)} ${y(values[i])}`;
+  return d;
+}
+
+function MiniCostChart({
+  seriesFossil,
+  seriesHP,
+  labelFossil = "Fossil",
+  labelHP = "Wärmepumpe",
+}: {
+  seriesFossil: number[];
+  seriesHP: number[];
+  labelFossil?: string;
+  labelHP?: string;
+}) {
+  const w = 820;
+  const h = 240;
+  const pad = 30;
+
+  const maxY = Math.max(1, ...seriesFossil.map((v) => Number(v || 0)), ...seriesHP.map((v) => Number(v || 0)));
+  const dF = buildLinePath(seriesFossil, w, h, pad, maxY);
+  const dH = buildLinePath(seriesHP, w, h, pad, maxY);
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Kumulierte Kosten (druckstabil)</div>
+
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kumulierte Kosten">
+        <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
+        <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
+
+        {[0.25, 0.5, 0.75].map((p, i) => (
+          <line
+            key={i}
+            x1={pad}
+            x2={w - pad}
+            y1={pad + (h - pad * 2) * p}
+            y2={pad + (h - pad * 2) * p}
+            stroke="#f1f5f9"
+          />
+        ))}
+
+        <line x1={pad} x2={w - pad} y1={h - pad} y2={h - pad} stroke="#e2e8f0" />
+        <line x1={pad} x2={pad} y1={pad} y2={h - pad} stroke="#e2e8f0" />
+
+        <path d={dF} fill="none" stroke="#ef4444" strokeWidth="3" />
+        <path d={dH} fill="none" stroke="#2563eb" strokeWidth="3" />
+
+        <g transform={`translate(${pad}, ${10})`}>
+          <rect x="0" y="0" width="10" height="10" fill="#ef4444" />
+          <text x="14" y="10" fontSize="12" fill="#334155">
+            {labelFossil}
+          </text>
+
+          <rect x="110" y="0" width="10" height="10" fill="#2563eb" />
+          <text x="124" y="10" fontSize="12" fill="#334155">
+            {labelHP}
+          </text>
+        </g>
+
+        <text x={pad} y={pad - 8} fontSize="11" fill="#64748b">
+          max ≈ {Math.round(maxY).toLocaleString("de-DE")} €
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function MiniTotalBarChart({
+  fossil,
+  hp,
+  labelFossil = "Fossil",
+  labelHP = "Wärmepumpe",
+}: {
+  fossil: number;
+  hp: number;
+  labelFossil?: string;
+  labelHP?: string;
+}) {
+  const w = 820;
+  const h = 220;
+  const pad = 30;
+  const barW = 220;
+  const gap = 120;
+
+  const maxY = Math.max(1, Number(fossil || 0), Number(hp || 0));
+  const innerH = h - pad * 2;
+  const scale = (v: number) => (innerH * v) / maxY;
+
+  const fH = scale(Number(fossil || 0));
+  const hH = scale(Number(hp || 0));
+
+  const x1 = pad + 120;
+  const x2 = x1 + barW + gap;
+  const yBase = h - pad;
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Gesamtkosten im Zeitraum (druckstabil)</div>
+
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gesamtkosten Balken">
+        <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
+        <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
+
+        <line x1={pad} x2={w - pad} y1={yBase} y2={yBase} stroke="#e2e8f0" />
+        <line x1={pad} x2={pad} y1={pad} y2={yBase} stroke="#e2e8f0" />
+
+        <rect x={x1} y={yBase - fH} width={barW} height={fH} fill="#ef4444" />
+        <rect x={x2} y={yBase - hH} width={barW} height={hH} fill="#2563eb" />
+
+        <text x={x1 + barW / 2} y={yBase + 18} fontSize="12" fill="#334155" textAnchor="middle">
+          {labelFossil}
+        </text>
+        <text x={x2 + barW / 2} y={yBase + 18} fontSize="12" fill="#334155" textAnchor="middle">
+          {labelHP}
+        </text>
+
+        <text x={x1 + barW / 2} y={yBase - fH - 8} fontSize="12" fill="#0f172a" textAnchor="middle" fontWeight="700">
+          {Math.round(Number(fossil || 0)).toLocaleString("de-DE")} €
+        </text>
+        <text x={x2 + barW / 2} y={yBase - hH - 8} fontSize="12" fill="#0f172a" textAnchor="middle" fontWeight="700">
+          {Math.round(Number(hp || 0)).toLocaleString("de-DE")} €
+        </text>
+
+        <text x={pad} y={pad - 8} fontSize="11" fill="#64748b">
+          max ≈ {Math.round(maxY).toLocaleString("de-DE")} €
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+// ===== Print Modal (Popup-Look) =====
+
+function PrintModal({
+  open,
+  onClose,
+  role,
+  form,
+  result,
+}: {
+  open: boolean;
+  onClose: () => void;
+  role: Role;
+  form: FormState;
+  result: CalcResult;
+}) {
+  const narrative = useMemo(() => getNarrative(role, form, result), [role, form, result]);
+
+  const totals =
+    role === "vermieter"
+      ? { fossil: result.totalLandlordFossil, wp: result.totalLandlordHP, savings: result.savingsLandlord }
+      : role === "mieter"
+      ? { fossil: result.totalTenantFossil, wp: result.totalTenantHP, savings: result.savingsTenant }
+      : { fossil: result.totalOwnerFossil, wp: result.totalOwnerHP, savings: result.savingsOwner };
+
+  const series =
+    role === "vermieter"
+      ? { fossil: result.cumLandlordFossil, hp: result.cumLandlordHP }
+      : role === "mieter"
+      ? { fossil: result.cumTenantFossil, hp: result.cumTenantHP }
+      : { fossil: result.cumOwnerFossil, hp: result.cumOwnerHP };
+
+  // Optional: ESC schließen
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="print-modal-overlay no-print">
+      <div className="print-modal">
+        <div className="print-modal-bar no-print">
+          <div className="text-sm font-semibold">Bericht</div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
+              onClick={() => {
+                // sicherstellen, dass Layout steht
+                setTimeout(() => window.print(), 50);
+              }}
+            >
+              Drucken
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
+              onClick={onClose}
+            >
+              Schließen
+            </button>
+          </div>
+        </div>
+
+        {/* ✅ Nur dieser Bereich wird gedruckt */}
+        <div id="printArea" className="report">
+          <div className="report-header">
+            <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
+            <div className="report-head-right">
+              <div className="report-title">Heizungs-Vergleich – Bericht</div>
+              <div className="report-muted">
+                Rolle: <b>{narrative.label}</b>
+                <br />
+                Datum: {new Date().toLocaleString("de-DE")}
+              </div>
+            </div>
+          </div>
+
+          <div className="report-card">
+            <div className="report-h2">{narrative.headline}</div>
+            <div style={{ marginTop: 6 }}>{narrative.intro}</div>
+            <div className="report-muted" style={{ marginTop: 8 }}>
+              {narrative.drivers}
+            </div>
+            {narrative.paybackText && (
+              <div style={{ marginTop: 8 }}>
+                <b>{narrative.paybackText}</b>
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}>
+              <div className="report-h3">Nächste Schritte</div>
+              <ul className="report-ul">
+                {narrative.nextSteps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="report-kpis">
+            <div className="report-card">
+              <div className="report-muted" style={{ fontWeight: 700 }}>
+                Gesamtkosten fossil
+              </div>
+              <div className="report-kpi">{formatEuro(totals.fossil, 0)}</div>
+            </div>
+            <div className="report-card">
+              <div className="report-muted" style={{ fontWeight: 700 }}>
+                Gesamtkosten Wärmepumpe
+              </div>
+              <div className="report-kpi">{formatEuro(totals.wp, 0)}</div>
+            </div>
+            <div className="report-card">
+              <div className="report-muted" style={{ fontWeight: 700 }}>
+                Vorteil/Nachteil WP
+              </div>
+              <div className="report-kpi">{formatEuro(totals.savings, 0)}</div>
+              <div className="report-muted">(positiv = Vorteil)</div>
+            </div>
+          </div>
+
+          <MiniCostChart seriesFossil={series.fossil} seriesHP={series.hp} />
+          <MiniTotalBarChart fossil={totals.fossil} hp={totals.wp} />
+
+          <div className="report-section">
+            <div className="report-h3">Grundannahmen</div>
+            <table className="report-table">
+              <tbody>
+                <tr>
+                  <th>Zeitraum</th>
+                  <td>{form.years} Jahre</td>
+                </tr>
+                <tr>
+                  <th>Heizwärmebedarf</th>
+                  <td>{form.heatDemand} kWh/a</td>
+                </tr>
+                <tr>
+                  <th>Fläche / WE</th>
+                  <td>
+                    {form.area} m² / {form.units} WE
+                  </td>
+                </tr>
+                <tr>
+                  <th>Fossil</th>
+                  <td>
+                    {form.carrierFossil}, Preis {form.priceFossil0} ct/kWh, Steigerung {form.incFossil}%/a
+                  </td>
+                </tr>
+                <tr>
+                  <th>Wärmepumpe</th>
+                  <td>
+                    {form.carrierHP}, Preis {form.priceEl0} ct/kWh, Steigerung {form.incEl}%/a, JAZ {form.jaz}
+                  </td>
+                </tr>
+                <tr>
+                  <th>Investitionen</th>
+                  <td>
+                    Fossil {formatEuro(form.investFossil, 0)} | WP {formatEuro(form.investHP, 0)} | Förderung{" "}
+                    {formatEuro(form.subsidyHP, 0)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="report-muted" style={{ marginTop: 10 }}>
+              Hinweis: Vereinfachtes Modell. Alle Angaben ohne Gewähr; maßgeblich sind aktuelle Richtlinien, Verträge und reale Anlagenwerte.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Styles */}
+      <style jsx global>{`
+        /* Modal Layout */
+        .print-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.55);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          z-index: 50;
+        }
+        .print-modal {
+          width: min(980px, 100%);
+          height: min(92vh, 100%);
+          background: white;
+          border-radius: 16px;
+          overflow: hidden;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+          display: flex;
+          flex-direction: column;
+        }
+        .print-modal-bar {
+          padding: 12px 14px;
+          border-bottom: 1px solid #e2e8f0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #ffffff;
+        }
+
+        /* Report Styles */
+        .report {
+          padding: 20px;
+          overflow: auto;
+          color: #0f172a;
+          font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+        .report-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          border-bottom: 1px solid #e2e8f0;
+          padding-bottom: 12px;
+          margin-bottom: 16px;
+        }
+        .report-logo {
+          height: 56px;
+          width: auto;
+        }
+        .report-head-right {
+          text-align: right;
+        }
+        .report-title {
+          font-size: 20px;
+          font-weight: 800;
+          margin: 0;
+        }
+        .report-muted {
+          color: #64748b;
+          font-size: 12px;
+        }
+        .report-card {
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 12px;
+          background: #fff;
+        }
+        .report-h2 {
+          font-size: 14px;
+          font-weight: 800;
+        }
+        .report-h3 {
+          font-size: 13px;
+          font-weight: 800;
+        }
+        .report-ul {
+          margin: 6px 0 0 18px;
+          font-size: 13px;
+        }
+        .report-kpis {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          margin-top: 16px;
+        }
+        .report-kpi {
+          font-size: 18px;
+          font-weight: 800;
+          margin-top: 6px;
+        }
+        .report-section {
+          margin-top: 14px;
+        }
+        .report-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 12px;
+          margin-top: 6px;
+        }
+        .report-table th,
+        .report-table td {
+          border-bottom: 1px solid #e2e8f0;
+          padding: 6px 4px;
+          text-align: left;
+        }
+        .report-table th {
+          width: 220px;
+          color: #64748b;
+          font-weight: 800;
+        }
+
+        /* ✅ PRINT: nur #printArea drucken */
+        @media print {
+          .no-print {
+            display: none !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #printArea,
+          #printArea * {
+            visibility: visible !important;
+          }
+          #printArea {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+          body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function ToolPage() {
   const [tab, setTab] = useState<"vergleich" | "foerder">("vergleich");
   const [role, setRole] = useState<Role>("vermieter");
@@ -190,6 +734,9 @@ export default function ToolPage() {
   const [foerderError, setFoerderError] = useState<string | null>(null);
 
   const [subsidyApplied, setSubsidyApplied] = useState(false);
+
+  // ✅ Option A: Popup-Modal im selben Tab
+  const [showPrint, setShowPrint] = useState(false);
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
     setForm((prev) => ({
@@ -310,7 +857,7 @@ export default function ToolPage() {
 
   const chartData = useMemo(() => {
     if (!result || !perspective) return [];
-    return result.rows.map((row, idx) => ({
+    return result.rows.map((_, idx) => ({
       name: `J${idx + 1}`,
       kumFossil: perspective.cumFossil[idx],
       kumHP: perspective.cumHP[idx],
@@ -599,7 +1146,7 @@ export default function ToolPage() {
 
           {result && perspective && (
             <section className="space-y-6">
-              {/* ✅ Druck-Sektion */}
+              {/* Druck-Sektion */}
               <div className="bg-white border rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold">{hint.title}</div>
@@ -612,16 +1159,7 @@ export default function ToolPage() {
                 <button
                   type="button"
                   className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-                  onClick={() => {
-                    const payload = {
-                      role,
-                      createdAtISO: new Date().toISOString(),
-                      form,
-                      result,
-                    };
-                    sessionStorage.setItem("heizungstool_report", JSON.stringify(payload));
-                    window.open("/report", "_blank", "noopener,noreferrer");
-                  }}
+                  onClick={() => setShowPrint(true)}
                 >
                   Bericht drucken
                 </button>
@@ -663,7 +1201,7 @@ export default function ToolPage() {
                 </div>
               </div>
 
-              {/* Charts */}
+              {/* Charts (Screen) */}
               <div className="bg-white border rounded-xl p-4 shadow-sm">
                 <div className="text-xs text-slate-500 mb-2">Kumulierte Kosten ({perspective.label}) – fossil vs. Wärmepumpe</div>
                 <div className="h-64">
@@ -731,6 +1269,15 @@ export default function ToolPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* ✅ Modal für Druck */}
+              <PrintModal
+                open={showPrint}
+                onClose={() => setShowPrint(false)}
+                role={role}
+                form={form}
+                result={result}
+              />
             </section>
           )}
         </>
@@ -761,27 +1308,15 @@ export default function ToolPage() {
               <div className="space-y-2">
                 <p className="text-xs font-medium text-slate-700">Wohngebäude-Optionen (vereinfacht)</p>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnKlimaBonus}
-                    onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)}
-                  />
+                  <input type="checkbox" checked={foerderForm.wohnKlimaBonus} onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)} />
                   Klima-Geschwindigkeitsbonus
                 </label>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnEinkommensBonus}
-                    onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)}
-                  />
+                  <input type="checkbox" checked={foerderForm.wohnEinkommensBonus} onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)} />
                   Einkommensbonus
                 </label>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnEffizienzBonus}
-                    onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)}
-                  />
+                  <input type="checkbox" checked={foerderForm.wohnEffizienzBonus} onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)} />
                   Effizienzbonus
                 </label>
               </div>
@@ -789,21 +1324,13 @@ export default function ToolPage() {
               <div className="space-y-2">
                 <p className="text-xs font-medium text-slate-700">Nichtwohngebäude-Optionen (vereinfacht)</p>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.nwgEffizienzBonus}
-                    onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)}
-                  />
+                  <input type="checkbox" checked={foerderForm.nwgEffizienzBonus} onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)} />
                   Effizienzbonus
                 </label>
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={foerderLoading}
-              className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
-            >
+            <button type="submit" disabled={foerderLoading} className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
               {foerderLoading ? "Berechne Förderung ..." : "Förderung berechnen"}
             </button>
 
@@ -837,12 +1364,9 @@ export default function ToolPage() {
                       (subsidyApplied ? "bg-emerald-600 text-white" : "bg-blue-600 text-white hover:bg-blue-700")
                     }
                     onClick={() => {
-                      setForm((prev) => ({
-                        ...prev,
-                        subsidyHP: Math.round(foerderResult.foerderEuro),
-                      }));
+                      setForm((prev) => ({ ...prev, subsidyHP: Math.round(foerderResult.foerderEuro) }));
                       setSubsidyApplied(true);
-                      setTab("vergleich"); // ✅ zurückspringen
+                      setTab("vergleich");
                     }}
                   >
                     {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss übernehmen"}
