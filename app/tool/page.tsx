@@ -10,7 +10,6 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  Legend,
   Cell,
 } from "recharts";
 
@@ -44,6 +43,7 @@ interface FormState {
 
 interface CalcResult {
   extraInvest: number;
+
   paybackLandlord: number | null;
   paybackOwner: number | null;
 
@@ -117,11 +117,33 @@ interface FoerderResult {
 
 function formatEuro(value: number, decimals = 0) {
   return (
-    value.toLocaleString("de-DE", {
+    Number(value || 0).toLocaleString("de-DE", {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     }) + " €"
   );
+}
+
+function getPrintHint(role: Role) {
+  if (role === "vermieter") {
+    return {
+      title: "Bericht für Vermieter",
+      text:
+        "Fokus auf Vermieterkosten (Investition, Wartung, Vermieteranteil CO₂) sowie Vorteil/Nachteil und Amortisation.",
+    };
+  }
+  if (role === "mieter") {
+    return {
+      title: "Bericht für Mieter",
+      text:
+        "Fokus auf laufende Kosten (Energie + Mieteranteil CO₂). Investitionen werden in dieser Perspektive nicht bewertet.",
+    };
+  }
+  return {
+    title: "Bericht für Eigentümer (Selbstnutzer)",
+    text:
+      "Fokus auf Gesamtkosten inkl. Investition, Energie, Wartung und CO₂ sowie Vorteil/Nachteil und Amortisation.",
+  };
 }
 
 export default function ToolPage() {
@@ -200,10 +222,7 @@ export default function ToolPage() {
     }
   }
 
-  function updateFoerderField<K extends keyof FoerderForm>(
-    key: K,
-    value: FoerderForm[K]
-  ) {
+  function updateFoerderField<K extends keyof FoerderForm>(key: K, value: FoerderForm[K]) {
     setFoerderForm((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -215,7 +234,7 @@ export default function ToolPage() {
     try {
       const body = {
         ...foerderForm,
-        invest: form.investHP, // ✅ kommt aus Heizungsvergleich
+        invest: form.investHP, // ✅ aus Heizungsvergleich
         area: form.area,
         units: form.units,
       };
@@ -247,8 +266,7 @@ export default function ToolPage() {
         totalFossil: result.totalLandlordFossil,
         totalHP: result.totalLandlordHP,
         savings: result.savingsLandlord,
-        payback:
-          result.extraInvest <= 0 ? null : result.paybackLandlord,
+        payback: result.extraInvest <= 0 ? null : result.paybackLandlord,
         cumFossil: result.cumLandlordFossil,
         cumHP: result.cumLandlordHP,
         annualKeyFossil: "landlordAnnualFossil" as const,
@@ -307,21 +325,18 @@ export default function ToolPage() {
     ];
   }, [perspective]);
 
+  const hint = getPrintHint(role);
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 text-sm">
-      <h1 className="text-2xl font-semibold mb-1">
-        Heizungs-Vergleich &amp; Förderrechner
-      </h1>
+      <h1 className="text-2xl font-semibold mb-1">Heizungs-Vergleich &amp; Förderrechner</h1>
       <p className="text-slate-600 mb-4">
-        Vergleich fossil vs. Wärmepumpe. Ergebnisse können je nach Rolle (Eigentümer/Vermieter/Mieter)
-        unterschiedlich ausfallen.
+        Vergleich fossil vs. Wärmepumpe. Ergebnisse können je nach Rolle (Eigentümer/Vermieter/Mieter) unterschiedlich ausfallen.
       </p>
 
       {/* Rolle */}
       <div className="bg-white border rounded-xl p-4 shadow-sm mb-6">
-        <label className="block text-xs font-medium text-slate-700 mb-1">
-          Deine Rolle / Zielgruppe
-        </label>
+        <label className="block text-xs font-medium text-slate-700 mb-1">Deine Rolle / Zielgruppe</label>
         <select
           className="w-full md:w-[360px] border rounded-lg px-2 py-1.5"
           value={role}
@@ -332,8 +347,7 @@ export default function ToolPage() {
           <option value="mieter">Mieter</option>
         </select>
         <p className="text-[11px] text-slate-500 mt-2">
-          Hinweis: Die Aufteilung basiert auf einer vereinfachten Annahme (CO₂-Kosten werden aufgeteilt,
-          Energie typischerweise vom Mieter getragen).
+          Hinweis: Vereinfachtes Modell (CO₂-Kosten werden anteilig verteilt; Energie typischerweise vom Mieter getragen).
         </p>
       </div>
 
@@ -368,9 +382,7 @@ export default function ToolPage() {
           <form onSubmit={handleCalc} className="grid gap-6 md:grid-cols-2 mb-8">
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Heizwärmebedarf / Energieverbrauch (kWh/a)
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Heizwärmebedarf / Energieverbrauch (kWh/a)</label>
                 <input
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -380,9 +392,7 @@ export default function ToolPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Gebäudefläche (m²)
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Gebäudefläche (m²)</label>
                 <input
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -392,9 +402,7 @@ export default function ToolPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Wohneinheiten
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Wohneinheiten</label>
                 <input
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -404,9 +412,7 @@ export default function ToolPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Betrachtungszeitraum (Jahre)
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Betrachtungszeitraum (Jahre)</label>
                 <input
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -416,15 +422,11 @@ export default function ToolPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  CO₂-Preisszenario
-                </label>
+                <label className="block text-xs font-medium text-slate-700">CO₂-Preisszenario</label>
                 <select
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
                   value={form.scenario}
-                  onChange={(e) =>
-                    updateField("scenario", e.target.value as ScenarioName)
-                  }
+                  onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}
                 >
                   <option>Sehr niedrig</option>
                   <option>Niedrig</option>
@@ -435,15 +437,11 @@ export default function ToolPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Energiequelle fossile Heizung
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Energiequelle fossile Heizung</label>
                 <select
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
                   value={form.carrierFossil}
-                  onChange={(e) =>
-                    updateField("carrierFossil", e.target.value as CarrierFossil)
-                  }
+                  onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
                 >
                   <option value="Erdgas">Erdgas</option>
                   <option value="Flüssiggas">Flüssiggas</option>
@@ -455,9 +453,7 @@ export default function ToolPage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Investitionskosten fossile Heizung (€, einmalig)
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Investitionskosten fossile Heizung (€, einmalig)</label>
                 <input
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -467,9 +463,7 @@ export default function ToolPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Wirkungsgrad fossile Heizung (%)
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Wirkungsgrad fossile Heizung (%)</label>
                 <input
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -480,9 +474,7 @@ export default function ToolPage() {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700">
-                    Brennstoffpreis heute (ct/kWh)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-700">Brennstoffpreis heute (ct/kWh)</label>
                   <input
                     type="number"
                     className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -491,9 +483,7 @@ export default function ToolPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700">
-                    Preissteigerung Brennstoff (%/a)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-700">Preissteigerung Brennstoff (%/a)</label>
                   <input
                     type="number"
                     className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -504,9 +494,7 @@ export default function ToolPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Wartungs-/Fixkosten fossile Heizung (€/a)
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten fossile Heizung (€/a)</label>
                 <input
                   type="number"
                   className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -520,24 +508,18 @@ export default function ToolPage() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Stromquelle / Strommix
-                    </label>
+                    <label className="block text-xs font-medium text-slate-700">Stromquelle / Strommix</label>
                     <select
                       className="mt-1 w-full border rounded-lg px-2 py-1.5"
                       value={form.carrierHP}
-                      onChange={(e) =>
-                        updateField("carrierHP", e.target.value as CarrierHP)
-                      }
+                      onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}
                     >
                       <option value="Strom Stromix">Strom Stromix</option>
                       <option value="Strom Erneuerbar">Strom Erneuerbar</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700">
-                      JAZ (Jahresarbeitszahl)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-700">JAZ (Jahresarbeitszahl)</label>
                     <input
                       type="number"
                       className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -549,9 +531,7 @@ export default function ToolPage() {
 
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Investitionskosten WP (brutto, €)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-700">Investitionskosten WP (brutto, €)</label>
                     <input
                       type="number"
                       className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -560,26 +540,20 @@ export default function ToolPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Förderung WP (Zuschuss, €)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-700">Förderung WP (Zuschuss, €)</label>
                     <input
                       type="number"
                       className="mt-1 w-full border rounded-lg px-2 py-1.5"
                       value={form.subsidyHP}
                       onChange={(e) => updateField("subsidyHP", e.target.value)}
                     />
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Tipp: Im Förderrechner „Zuschuss übernehmen“ klicken.
-                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">Tipp: Im Förderrechner „Zuschuss übernehmen“ klicken.</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Strompreis heute (ct/kWh)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-700">Strompreis heute (ct/kWh)</label>
                     <input
                       type="number"
                       className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -588,9 +562,7 @@ export default function ToolPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Preissteigerung Strom (%/a)
-                    </label>
+                    <label className="block text-xs font-medium text-slate-700">Preissteigerung Strom (%/a)</label>
                     <input
                       type="number"
                       className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -601,9 +573,7 @@ export default function ToolPage() {
                 </div>
 
                 <div className="mt-2">
-                  <label className="block text-xs font-medium text-slate-700">
-                    Wartungs-/Fixkosten WP (€/a)
-                  </label>
+                  <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten WP (€/a)</label>
                   <input
                     type="number"
                     className="mt-1 w-full border rounded-lg px-2 py-1.5"
@@ -627,346 +597,4 @@ export default function ToolPage() {
 
           {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
 
-          {result && perspective && (
-            <section className="space-y-6">
-              <div className="bg-white border rounded-xl p-4 shadow-sm text-[11px] text-slate-600">
-                <span className="font-medium">{perspective.label}:</span>{" "}
-                {perspective.note}
-              </div>
-
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500">Mehrinvestition WP (netto)</div>
-                  <div className="text-lg font-semibold">{formatEuro(result.extraInvest, 0)}</div>
-                </div>
-
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500">
-                    Amortisation ({perspective.label})
-                  </div>
-                  <div className="text-lg font-semibold">
-                    {result.extraInvest <= 0
-                      ? "Keine Mehrinvestition"
-                      : perspective.payback
-                      ? `${perspective.payback}. Jahr`
-                      : "Keine vollständige Amortisation"}
-                  </div>
-                </div>
-
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500">
-                    Vorteil/Nachteil ({perspective.label})
-                  </div>
-                  <div
-                    className={
-                      "text-lg font-semibold " +
-                      (perspective.savings > 0
-                        ? "text-emerald-700"
-                        : perspective.savings < 0
-                        ? "text-red-700"
-                        : "")
-                    }
-                  >
-                    {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
-                      formatEuro(Math.abs(perspective.savings), 0)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500 mb-1">
-                    Fossil – CO₂ &amp; Vermieteranteil
-                  </div>
-                  <div className="text-base font-semibold">
-                    {result.co2FossilKgPerM2.toLocaleString("de-DE", { maximumFractionDigits: 1 })}{" "}
-                    kg CO₂/m²a
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Vermieteranteil:{" "}
-                    {(result.landlordShareFossilStatic * 100).toLocaleString("de-DE", {
-                      maximumFractionDigits: 0,
-                    })}
-                    %
-                  </div>
-                </div>
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500 mb-1">
-                    Wärmepumpe – CO₂ &amp; Vermieteranteil
-                  </div>
-                  <div className="text-base font-semibold">
-                    {result.co2HPKgPerM2.toLocaleString("de-DE", { maximumFractionDigits: 1 })}{" "}
-                    kg CO₂/m²a
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Vermieteranteil:{" "}
-                    {(result.landlordShareHPStatic * 100).toLocaleString("de-DE", {
-                      maximumFractionDigits: 0,
-                    })}
-                    %
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white border rounded-xl p-4 shadow-sm">
-                <div className="text-xs text-slate-500 mb-2">
-                  Kumulierte Kosten ({perspective.label}) – fossil vs. Wärmepumpe
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="kumFossil"
-                        name="kumuliert fossil"
-                        stroke="#ef4444"
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="kumHP"
-                        name="kumuliert Wärmepumpe"
-                        stroke="#2563eb"
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="bg-white border rounded-xl p-4 shadow-sm">
-                <div className="text-xs text-slate-500 mb-2">
-                  Gesamtkosten ({perspective.label})
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={totalChartData}>
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                      <Bar dataKey="kosten" name="Gesamtkosten">
-                        {totalChartData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={entry.name === "Fossil" ? "#ef4444" : "#2563eb"}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="bg-white border rounded-xl p-4 shadow-sm overflow-x-auto">
-                <div className="text-xs text-slate-500 mb-2">
-                  Jährliche Übersicht ({perspective.label})
-                </div>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-1 pr-2">Jahr</th>
-                      <th className="text-right py-1 px-2">CO₂-Preis</th>
-                      <th className="text-right py-1 px-2">Kosten fossil</th>
-                      <th className="text-right py-1 px-2">Kosten WP</th>
-                      <th className="text-right py-1 px-2">kumulierte Einsparung</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.rows.map((row) => {
-                      const annualF =
-                        (row as any)[perspective.annualKeyFossil] as number;
-                      const annualH =
-                        (row as any)[perspective.annualKeyHP] as number;
-                      const cumS =
-                        (row as any)[perspective.cumSavingsKey] as number;
-
-                      return (
-                        <tr key={row.year} className="border-b">
-                          <td className="py-1 pr-2">{row.year}</td>
-                          <td className="py-1 px-2 text-right">
-                            {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
-                          </td>
-                          <td className="py-1 px-2 text-right">{formatEuro(annualF, 0)}</td>
-                          <td className="py-1 px-2 text-right">{formatEuro(annualH, 0)}</td>
-                          <td className="py-1 px-2 text-right">{formatEuro(cumS, 0)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-        </>
-      )}
-
-      {tab === "foerder" && (
-        <section className="grid md:grid-cols-2 gap-6">
-          <form onSubmit={handleFoerderCalc} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Gebäudeart
-              </label>
-              <select
-                className="w-full border rounded-lg px-2 py-1.5"
-                value={foerderForm.art}
-                onChange={(e) =>
-                  updateFoerderField("art", e.target.value as "wohn" | "nichtwohn")
-                }
-              >
-                <option value="wohn">Wohngebäude</option>
-                <option value="nichtwohn">Nichtwohngebäude</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Investitionskosten Wärmepumpe (brutto, €)
-              </label>
-              <input
-                type="number"
-                className="w-full border rounded-lg px-2 py-1.5 bg-slate-50"
-                value={form.investHP}
-                readOnly
-              />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Kommt aus dem Heizungsrechner.
-              </p>
-            </div>
-
-            {foerderForm.art === "wohn" ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-slate-700">
-                  Wohngebäude-Optionen (vereinfacht)
-                </p>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnKlimaBonus}
-                    onChange={(e) =>
-                      updateFoerderField("wohnKlimaBonus", e.target.checked)
-                    }
-                  />
-                  Klima-Geschwindigkeitsbonus
-                </label>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnEinkommensBonus}
-                    onChange={(e) =>
-                      updateFoerderField("wohnEinkommensBonus", e.target.checked)
-                    }
-                  />
-                  Einkommensbonus
-                </label>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnEffizienzBonus}
-                    onChange={(e) =>
-                      updateFoerderField("wohnEffizienzBonus", e.target.checked)
-                    }
-                  />
-                  Effizienzbonus
-                </label>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-slate-700">
-                  Nichtwohngebäude-Optionen (vereinfacht)
-                </p>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.nwgEffizienzBonus}
-                    onChange={(e) =>
-                      updateFoerderField("nwgEffizienzBonus", e.target.checked)
-                    }
-                  />
-                  Effizienzbonus
-                </label>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={foerderLoading}
-              className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
-            >
-              {foerderLoading ? "Berechne Förderung ..." : "Förderung berechnen"}
-            </button>
-
-            {foerderError && <p className="text-xs text-red-600 mt-2">{foerderError}</p>}
-          </form>
-
-          <div className="bg-white border rounded-xl p-4 shadow-sm text-sm">
-            {!foerderResult && (
-              <p className="text-slate-600">
-                Nach der Berechnung kannst du den Zuschuss per Button in den Heizungsrechner übernehmen.
-              </p>
-            )}
-
-            {foerderResult && (
-              <div className="space-y-3">
-                <div>
-                  <div className="text-xs text-slate-500">Förderquote</div>
-                  <div className="text-lg font-semibold">
-                    {foerderResult.foerderProzent.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-xs text-slate-500">Geschätzter Zuschuss</div>
-                  <div className="text-lg font-semibold">
-                    {formatEuro(foerderResult.foerderEuro, 0)}
-                  </div>
-
-                  <button
-                    type="button"
-                    className={
-                      "w-full mt-2 px-4 py-2 rounded-lg text-sm font-medium " +
-                      (subsidyApplied
-                        ? "bg-emerald-600 text-white"
-                        : "bg-blue-600 text-white hover:bg-blue-700")
-                    }
-                    onClick={() => {
-                      setForm((prev) => ({
-                        ...prev,
-                        subsidyHP: Math.round(foerderResult.foerderEuro),
-                      }));
-                      setSubsidyApplied(true);
-                      setTab("vergleich"); // ✅ automatisch zurück zum Vergleich
-                    }}
-                  >
-                    {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss übernehmen"}
-                  </button>
-
-                  <p className="text-[11px] text-slate-500 mt-2">
-                    Übernimmt den Zuschuss in „Förderung WP (Zuschuss, €)“ und springt zurück.
-                  </p>
-                </div>
-
-                <div>
-                  <div className="text-xs text-slate-500">
-                    Verbleibende Investition nach Zuschuss
-                  </div>
-                  <div className="text-lg font-semibold">
-                    {formatEuro(foerderResult.restInvest, 0)}
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-slate-500">
-                  Alle Angaben ohne Gewähr.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
+          {
