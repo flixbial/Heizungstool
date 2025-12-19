@@ -211,6 +211,71 @@ function Field({
   );
 }
 
+/** Wizard UI */
+function WizardHeader({
+  steps,
+  current,
+  canGoTo,
+  onGoTo,
+}: {
+  steps: { title: string; short: string }[];
+  current: number;
+  canGoTo: (idx: number) => boolean;
+  onGoTo: (idx: number) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm px-5 py-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">
+            Geführter Modus · Schritt {current + 1} von {steps.length}
+          </div>
+          <div className="mt-1 text-xs text-slate-600">{steps[current].title}</div>
+        </div>
+        <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
+          <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          Public-Ready Wizard
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-5 gap-2">
+        {steps.map((s, idx) => {
+          const active = idx === current;
+          const enabled = canGoTo(idx);
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => enabled && onGoTo(idx)}
+              className={
+                "rounded-xl border px-3 py-2 text-left transition " +
+                (active
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : enabled
+                  ? "border-slate-200 bg-white hover:bg-slate-50 text-slate-800"
+                  : "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed")
+              }
+              aria-disabled={!enabled}
+              title={s.title}
+            >
+              <div className={"text-[11px] font-semibold " + (active ? "text-white" : "")}>
+                {idx + 1}. {s.short}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+        <div
+          className="h-full bg-slate-900"
+          style={{ width: `${((current + 1) / steps.length) * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ===== Druckstabile SVG-Grafiken =====
 
 function buildLinePath(values: number[], w: number, h: number, pad: number, maxY: number) {
@@ -281,6 +346,7 @@ function MiniCostChart({
         <line x1={pad} x2={w - pad} y1={h - pad} y2={h - pad} stroke="#e2e8f0" />
         <line x1={pad} x2={pad} y1={pad} y2={h - pad} stroke="#e2e8f0" />
 
+        {/* Fossil rot, WP blau */}
         <path d={dF} fill="none" stroke="#ef4444" strokeWidth="3" />
         <path d={dH} fill="none" stroke="#2563eb" strokeWidth="3" />
 
@@ -407,9 +473,17 @@ function PrintModal({
 }) {
   const totals =
     role === "vermieter"
-      ? { fossil: result.totalLandlordFossil, wp: result.totalLandlordHP, savings: result.savingsLandlord }
+      ? {
+          fossil: result.totalLandlordFossil,
+          wp: result.totalLandlordHP,
+          savings: result.savingsLandlord,
+        }
       : role === "mieter"
-      ? { fossil: result.totalTenantFossil, wp: result.totalTenantHP, savings: result.savingsTenant }
+      ? {
+          fossil: result.totalTenantFossil,
+          wp: result.totalTenantHP,
+          savings: result.savingsTenant,
+        }
       : { fossil: result.totalOwnerFossil, wp: result.totalOwnerHP, savings: result.savingsOwner };
 
   const series =
@@ -652,7 +726,7 @@ export default function ToolPage() {
     maintHP: 600,
   });
 
-  // ===== Sprint 3.1 Step 2: Quick-Start Presets =====
+  // ===== Quick-Start Presets =====
   type PresetKey = "efh" | "mfh" | "gewerbe";
   const PRESETS: Record<
     PresetKey,
@@ -737,6 +811,21 @@ export default function ToolPage() {
 
   const [activePreset, setActivePreset] = useState<PresetKey | null>(null);
 
+  // ===== Wizard State =====
+  // 0 Situation/Preset, 1 Gebäude, 2 Fossil, 3 WP, 4 Ergebnis
+  const [wizardStep, setWizardStep] = useState<number>(0);
+
+  const wizardSteps = useMemo(
+    () => [
+      { title: "Situation & Quick-Start", short: "Start" },
+      { title: "Gebäude & Zeitraum", short: "Gebäude" },
+      { title: "Bestehende Heizung", short: "Fossil" },
+      { title: "Wärmepumpe", short: "WP" },
+      { title: "Ergebnis & Bericht", short: "Ergebnis" },
+    ],
+    []
+  );
+
   const [foerderForm, setFoerderForm] = useState<FoerderForm>({
     art: "wohn",
     wohnKlimaBonus: false,
@@ -756,27 +845,34 @@ export default function ToolPage() {
   const [subsidyApplied, setSubsidyApplied] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
 
+  // Reset wizard when switching tabs
+  useEffect(() => {
+    if (tab === "vergleich") return;
+    // keep wizard state, but avoid confusion when returning:
+    // (optional) do nothing. We'll reset when user returns to compare.
+  }, [tab]);
+
   function applyPreset(key: PresetKey) {
     const preset = PRESETS[key];
     setForm((prev) => ({ ...prev, ...preset.patch }));
     if (preset.roleHint) setRole(preset.roleHint);
     setActivePreset(key);
 
-    // Public-friendly: Ergebnis zurücksetzen (damit klar ist, dass neu bewertet werden muss)
     setResult(null);
     setError(null);
   }
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
-    setActivePreset(null); // sobald der Nutzer editiert, ist es "custom"
+    setActivePreset(null); // editing => custom
     setForm((prev) => ({
       ...prev,
       [key]: typeof prev[key] === "number" ? Number(value.replace(",", ".")) : (value as any),
     }));
+    // if inputs change, result is no longer valid
+    setResult(null);
   }
 
-  async function handleCalc(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleCalc() {
     setLoading(true);
     setError(null);
     setResult(null);
@@ -789,6 +885,11 @@ export default function ToolPage() {
       if (!res.ok) throw new Error("Fehler bei der Berechnung");
       const data = (await res.json()) as CalcResult;
       setResult(data);
+      setWizardStep(4);
+      // Scroll to top of wizard area for public UX
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
     } catch (err: any) {
       setError(err.message ?? "Unbekannter Fehler");
     } finally {
@@ -843,9 +944,6 @@ export default function ToolPage() {
         payback: result.extraInvest <= 0 ? null : result.paybackLandlord,
         cumFossil: result.cumLandlordFossil,
         cumHP: result.cumLandlordHP,
-        annualKeyFossil: "landlordAnnualFossil" as const,
-        annualKeyHP: "landlordAnnualHP" as const,
-        cumSavingsKey: "landlordCumSavings" as const,
         note: "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
       };
     }
@@ -859,9 +957,6 @@ export default function ToolPage() {
         payback: null,
         cumFossil: result.cumTenantFossil,
         cumHP: result.cumTenantHP,
-        annualKeyFossil: "tenantAnnualFossil" as const,
-        annualKeyHP: "tenantAnnualHP" as const,
-        cumSavingsKey: "tenantCumSavings" as const,
         note: "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
       };
     }
@@ -874,9 +969,6 @@ export default function ToolPage() {
       payback: result.extraInvest <= 0 ? null : result.paybackOwner,
       cumFossil: result.cumOwnerFossil,
       cumHP: result.cumOwnerHP,
-      annualKeyFossil: "ownerAnnualFossil" as const,
-      annualKeyHP: "ownerAnnualHP" as const,
-      cumSavingsKey: "ownerCumSavings" as const,
       note: "Eigentümer trägt Investition, Energie, Wartung und 100% der CO₂-Kosten.",
     };
   }, [result, role]);
@@ -899,6 +991,34 @@ export default function ToolPage() {
   }, [perspective]);
 
   const hint = getPrintHint(role);
+
+  // Wizard gating: Ergebnis-Step nur wenn result vorhanden
+  function canGoTo(idx: number) {
+    if (idx < 4) return true;
+    return !!result;
+  }
+
+  function goTo(idx: number) {
+    if (!canGoTo(idx)) return;
+    setWizardStep(idx);
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
+  function next() {
+    if (wizardStep < 4) setWizardStep((s) => Math.min(4, s + 1));
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
+  function back() {
+    if (wizardStep > 0) setWizardStep((s) => Math.max(0, s - 1));
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10 text-sm">
@@ -1128,49 +1248,22 @@ export default function ToolPage() {
         }
       `}</style>
 
+      {/* Premium Header */}
       <div className="flex items-center justify-between gap-4 mb-8">
         <div>
-          <div className="text-3xl font-semibold text-slate-900 leading-tight">
-            Heizungs-Vergleich
-          </div>
+          <div className="text-3xl font-semibold text-slate-900 leading-tight">Heizungs-Vergleich</div>
           <div className="mt-2 text-slate-600 max-w-2xl">
             Eine verständliche Wirtschaftlichkeits-Einschätzung für <b>Fossil</b> vs. <b>Wärmepumpe</b> – inkl. druckfähigem Bericht.
           </div>
         </div>
         <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
           <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-          Public-Version (selbsterklärend)
+          Public-Version
         </div>
       </div>
 
-      <Section
-        title="1) Ihre Situation"
-        subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile. So wird das Ergebnis realistischer."
-      >
-        <div className="grid md:grid-cols-2 gap-4">
-          <Field label="Rolle / Zielgruppe" hint="wirkt sich auf die Bewertung aus">
-            <select
-              className="w-full border rounded-xl px-3 py-2 bg-white"
-              value={role}
-              onChange={(e) => setRole(e.target.value as Role)}
-            >
-              <option value="eigentuemer">Eigentümer (Selbstnutzer)</option>
-              <option value="vermieter">Vermieter</option>
-              <option value="mieter">Mieter</option>
-            </select>
-          </Field>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
-            <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
-            <div className="mt-2 text-[11px] text-slate-500">
-              Hinweis: vereinfachtes Modell. Ziel ist eine robuste, erklärbare Entscheidungshilfe.
-            </div>
-          </div>
-        </div>
-      </Section>
-
-      <div className="mt-8 flex items-center gap-2 border-b">
+      {/* Tabs */}
+      <div className="mt-2 flex items-center gap-2 border-b">
         <button
           className={
             "px-4 py-3 text-sm -mb-px border-b-2 " +
@@ -1178,9 +1271,13 @@ export default function ToolPage() {
               ? "border-slate-900 text-slate-900 font-medium"
               : "border-transparent text-slate-500 hover:text-slate-800")
           }
-          onClick={() => setTab("vergleich")}
+          onClick={() => {
+            setTab("vergleich");
+            // public-friendly: start at beginning when returning
+            setWizardStep(0);
+          }}
         >
-          Wirtschaftlichkeit bewerten
+          Geführter Vergleich (Wizard)
         </button>
         <button
           className={
@@ -1196,67 +1293,108 @@ export default function ToolPage() {
       </div>
 
       {tab === "vergleich" && (
-        <>
-          <form onSubmit={handleCalc} className="mt-6 grid gap-6">
-            {/* ===== NEW: Quick-Start Presets ===== */}
-            <Section
-              title="Quick-Start"
-              subtitle="Wählen Sie eine typische Ausgangslage. Danach können Sie die Werte feinjustieren."
-              tone="neutral"
-            >
-              <div className="grid md:grid-cols-3 gap-3">
-                {(["efh", "mfh", "gewerbe"] as PresetKey[]).map((k) => {
-                  const p = PRESETS[k];
-                  const active = activePreset === k;
-                  return (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => applyPreset(k)}
-                      className={
-                        "text-left rounded-2xl border px-4 py-4 transition " +
-                        (active
-                          ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-200 bg-white hover:bg-slate-50")
-                      }
+        <div className="mt-6 grid gap-6">
+          <WizardHeader
+            steps={wizardSteps}
+            current={wizardStep}
+            canGoTo={canGoTo}
+            onGoTo={goTo}
+          />
+
+          {/* Step 0: Situation + Presets */}
+          {wizardStep === 0 && (
+            <>
+              <Section
+                title="1) Ihre Situation"
+                subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile. So wird das Ergebnis realistischer."
+              >
+                <div className="grid md:grid-cols-2 gap-4">
+                  <Field label="Rolle / Zielgruppe" hint="wirkt sich auf die Bewertung aus">
+                    <select
+                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      value={role}
+                      onChange={(e) => {
+                        setRole(e.target.value as Role);
+                        setResult(null);
+                      }}
                     >
-                      <div className={"text-sm font-semibold " + (active ? "text-white" : "text-slate-900")}>
-                        {p.title}
-                      </div>
-                      <div className={"mt-1 text-xs " + (active ? "text-slate-200" : "text-slate-600")}>
-                        {p.subtitle}
-                      </div>
-                      <div className={"mt-3 text-[11px] " + (active ? "text-slate-300" : "text-slate-500")}>
-                        {k === "efh"
-                          ? `~ ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a · JAZ ${p.patch.jaz}`
-                          : k === "mfh"
-                          ? `~ ${p.patch.units} WE · ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a`
-                          : `~ ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a · Invest WP ${formatEuro(
-                              Number(p.patch.investHP || 0),
-                              0
-                            )}`}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                      <option value="eigentuemer">Eigentümer (Selbstnutzer)</option>
+                      <option value="vermieter">Vermieter</option>
+                      <option value="mieter">Mieter</option>
+                    </select>
+                  </Field>
 
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
-                {activePreset ? (
-                  <>
-                    <b>Preset aktiv:</b> {PRESETS[activePreset].title}.{" "}
-                    <span className="text-slate-600">
-                      Sie können jetzt jede Zahl anpassen (danach ist es „Custom“).
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <b>Tipp:</b> Presets erleichtern den Einstieg. Wenn Sie bereits konkrete Rechnungen/Angebote haben, tragen Sie diese direkt ein.
-                  </>
-                )}
-              </div>
-            </Section>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
+                    <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      Hinweis: vereinfachtes Modell. Ziel ist eine robuste, erklärbare Entscheidungshilfe.
+                    </div>
+                  </div>
+                </div>
+              </Section>
 
+              <Section
+                title="Quick-Start Presets"
+                subtitle="Wählen Sie eine typische Ausgangslage. Danach können Sie die Werte feinjustieren."
+              >
+                <div className="grid md:grid-cols-3 gap-3">
+                  {(["efh", "mfh", "gewerbe"] as PresetKey[]).map((k) => {
+                    const p = PRESETS[k];
+                    const active = activePreset === k;
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => applyPreset(k)}
+                        className={
+                          "text-left rounded-2xl border px-4 py-4 transition " +
+                          (active
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white hover:bg-slate-50")
+                        }
+                      >
+                        <div className={"text-sm font-semibold " + (active ? "text-white" : "text-slate-900")}>
+                          {p.title}
+                        </div>
+                        <div className={"mt-1 text-xs " + (active ? "text-slate-200" : "text-slate-600")}>
+                          {p.subtitle}
+                        </div>
+                        <div className={"mt-3 text-[11px] " + (active ? "text-slate-300" : "text-slate-500")}>
+                          {k === "efh"
+                            ? `~ ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a · JAZ ${p.patch.jaz}`
+                            : k === "mfh"
+                            ? `~ ${p.patch.units} WE · ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a`
+                            : `~ ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a · Invest WP ${formatEuro(
+                                Number(p.patch.investHP || 0),
+                                0
+                              )}`}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+                  {activePreset ? (
+                    <>
+                      <b>Preset aktiv:</b> {PRESETS[activePreset].title}.{" "}
+                      <span className="text-slate-600">
+                        Sie können jetzt jede Zahl anpassen (danach ist es „Custom“).
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <b>Tipp:</b> Presets erleichtern den Einstieg. Wenn Sie bereits konkrete Rechnungen/Angebote haben, tragen Sie diese in den nächsten Schritten ein.
+                    </>
+                  )}
+                </div>
+              </Section>
+            </>
+          )}
+
+          {/* Step 1: Gebäude */}
+          {wizardStep === 1 && (
             <Section
               title="2) Gebäude & Zeitraum"
               subtitle="Diese Angaben bestimmen die Größenordnung der Kosten und die Vergleichbarkeit."
@@ -1323,365 +1461,413 @@ export default function ToolPage() {
                 </div>
               </details>
             </Section>
+          )}
 
-            <div className="grid md:grid-cols-2 gap-6">
-              <Section
-                title="3) Bestehende Heizung (Referenz)"
-                subtitle="Damit vergleichen wir die Wärmepumpe. Je realistischer der Ausgangspunkt, desto besser das Ergebnis."
-                tone="fossil"
-              >
-                <div className="grid md:grid-cols-2 gap-4">
-                  <Field label="Energieträger" hint="Ausgangspunkt">
-                    <select
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
-                      value={form.carrierFossil}
-                      onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
-                    >
-                      <option value="Erdgas">Erdgas</option>
-                      <option value="Flüssiggas">Flüssiggas</option>
-                      <option value="Heizöl">Heizöl</option>
-                      <option value="Pellets">Pellets</option>
-                    </select>
-                  </Field>
-
-                  <Field label="Wirkungsgrad (%)" hint="typisch: 80–95">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.effFossil}
-                      onChange={(e) => updateField("effFossil", e.target.value)}
-                    />
-                  </Field>
-
-                  <Field label="Preis heute (ct/kWh)" hint="aus Rechnung">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.priceFossil0}
-                      onChange={(e) => updateField("priceFossil0", e.target.value)}
-                    />
-                  </Field>
-
-                  <Field label="Preissteigerung (%/a)" hint="z. B. 2–5">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.incFossil}
-                      onChange={(e) => updateField("incFossil", e.target.value)}
-                    />
-                  </Field>
-
-                  <Field label="Wartung/Fixkosten (€/a)" hint="Schornsteinfeger etc.">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.maintFossil}
-                      onChange={(e) => updateField("maintFossil", e.target.value)}
-                    />
-                  </Field>
-
-                  <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 md:col-span-2">
-                    <summary className="cursor-pointer text-sm font-medium text-slate-800">
-                      Investition (optional)
-                    </summary>
-                    <div className="mt-3 grid md:grid-cols-2 gap-4">
-                      <Field label="Investitionskosten fossil (€, einmalig)" hint="nur falls relevant">
-                        <input
-                          type="number"
-                          className="w-full border rounded-xl px-3 py-2"
-                          value={form.investFossil}
-                          onChange={(e) => updateField("investFossil", e.target.value)}
-                        />
-                      </Field>
-                      <div className="text-xs text-slate-600 leading-relaxed">
-                        Wenn die Anlage ohnehin erneuert werden muss, ist der Vergleich aussagekräftiger.
-                      </div>
-                    </div>
-                  </details>
-                </div>
-              </Section>
-
-              <Section
-                title="4) Wärmepumpe (Alternative)"
-                subtitle="Die Wirtschaftlichkeit hängt vor allem von JAZ, Strompreis und Förderung ab."
-                tone="hp"
-              >
-                <div className="grid md:grid-cols-2 gap-4">
-                  <Field label="Stromquelle" hint="Einfluss auf CO₂">
-                    <select
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
-                      value={form.carrierHP}
-                      onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}
-                    >
-                      <option value="Strom Stromix">Strom Stromix</option>
-                      <option value="Strom Erneuerbar">Strom Erneuerbar</option>
-                    </select>
-                  </Field>
-
-                  <Field label="JAZ (Jahresarbeitszahl)" hint="typisch 2,5–4,0">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.jaz}
-                      onChange={(e) => updateField("jaz", e.target.value)}
-                    />
-                  </Field>
-
-                  <Field label="Strompreis heute (ct/kWh)" hint="z. B. 25–40">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.priceEl0}
-                      onChange={(e) => updateField("priceEl0", e.target.value)}
-                    />
-                  </Field>
-
-                  <Field label="Preissteigerung Strom (%/a)" hint="z. B. 1–3">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.incEl}
-                      onChange={(e) => updateField("incEl", e.target.value)}
-                    />
-                  </Field>
-
-                  <Field label="Investitionskosten WP (€, brutto)" hint="Angebot / Schätzung">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.investHP}
-                      onChange={(e) => updateField("investHP", e.target.value)}
-                    />
-                  </Field>
-
-                  <Field label="Förderung (€, Zuschuss)" hint="aus Förderrechner">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.subsidyHP}
-                      onChange={(e) => updateField("subsidyHP", e.target.value)}
-                    />
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      Tipp: Im Tab „Fördermöglichkeiten prüfen“ berechnen und übernehmen.
-                    </div>
-                  </Field>
-
-                  <Field label="Wartung/Fixkosten (€/a)" hint="typisch geringer">
-                    <input
-                      type="number"
-                      className="w-full border rounded-xl px-3 py-2"
-                      value={form.maintHP}
-                      onChange={(e) => updateField("maintHP", e.target.value)}
-                    />
-                  </Field>
-
-                  <div className="md:col-span-2 rounded-xl border border-blue-200 bg-white px-4 py-3 text-xs text-slate-700">
-                    Wenn Sie unsicher sind: lassen Sie JAZ bei <b>3,0</b>. Im Bericht weisen wir darauf hin, dass reale Werte (Vorlauftemperatur, Heizflächen) entscheidend sind.
-                  </div>
-                </div>
-              </Section>
-            </div>
-
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div className="text-xs text-slate-600">
-                Öffentlich nutzbar: Bitte nur Werte eingeben, die Sie teilen möchten. Es werden keine personenbezogenen Daten benötigt.
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
-              >
-                {loading ? "Bewertung läuft ..." : "Wirtschaftlichkeit bewerten"}
-              </button>
-            </div>
-          </form>
-
-          {error && <div className="mt-5 text-sm text-red-600">{error}</div>}
-
-          {result && perspective && (
-            <div className="mt-8 grid gap-6">
-              <Section
-                title="5) Ihre Entscheidung"
-                subtitle="Das Ergebnis ist so formuliert, dass es auch ohne Beratung verständlich bleibt – inkl. Bericht."
-                tone="result"
-              >
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
-                  <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    {perspective.label}: {perspective.note}
-                  </div>
-                </div>
-
-                <div className="mt-4 grid md:grid-cols-3 gap-4">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="text-xs text-slate-500">Mehrinvestition Wärmepumpe (netto)</div>
-                    <div className="text-xl font-semibold text-slate-900 mt-1">
-                      {formatEuro(result.extraInvest, 0)}
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      Netto = WP Invest minus Förderung (vereinfacht)
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="text-xs text-slate-500">Amortisation ({perspective.label})</div>
-                    <div className="text-xl font-semibold text-slate-900 mt-1">
-                      {result.extraInvest <= 0
-                        ? "Keine Mehrinvestition"
-                        : perspective.payback
-                        ? `${perspective.payback}. Jahr`
-                        : "Keine vollständige Amortisation"}
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      Falls keine Amortisation: Ergebnis mit anderen Annahmen prüfen.
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="text-xs text-slate-500">Wirtschaftlicher Effekt ({perspective.label})</div>
-                    <div
-                      className={
-                        "text-xl font-semibold mt-1 " +
-                        (perspective.savings > 0
-                          ? "text-emerald-700"
-                          : perspective.savings < 0
-                          ? "text-rose-700"
-                          : "text-slate-900")
-                      }
-                    >
-                      {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
-                        formatEuro(Math.abs(perspective.savings), 0)}
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      Positiv bedeutet: WP ist im Zeitraum günstiger.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="text-sm text-slate-700">
-                    <b>Tipp:</b> Erstellen Sie den Bericht direkt nach der Berechnung.
-                  </div>
-                  <button
-                    type="button"
-                    className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm font-semibold hover:bg-slate-50"
-                    onClick={() => setShowPrint(true)}
+          {/* Step 2: Fossil */}
+          {wizardStep === 2 && (
+            <Section
+              title="3) Bestehende Heizung (Referenz)"
+              subtitle="Je realistischer der Ausgangspunkt, desto besser die Einordnung."
+              tone="fossil"
+            >
+              <div className="grid md:grid-cols-2 gap-4">
+                <Field label="Energieträger" hint="Ausgangspunkt">
+                  <select
+                    className="w-full border rounded-xl px-3 py-2 bg-white"
+                    value={form.carrierFossil}
+                    onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
                   >
-                    Bericht erstellen & drucken
-                  </button>
-                </div>
-              </Section>
+                    <option value="Erdgas">Erdgas</option>
+                    <option value="Flüssiggas">Flüssiggas</option>
+                    <option value="Heizöl">Heizöl</option>
+                    <option value="Pellets">Pellets</option>
+                  </select>
+                </Field>
 
-              <Section
-                title="Verlauf & Vergleich"
-                subtitle="Zur schnellen Einordnung – im Bericht sind die Grafiken druckstabil."
-                tone="result"
-              >
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="text-xs text-slate-500 mb-2">
-                      Kumulierte Kosten ({perspective.label})
+                <Field label="Wirkungsgrad (%)" hint="typisch: 80–95">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.effFossil}
+                    onChange={(e) => updateField("effFossil", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Preis heute (ct/kWh)" hint="aus Rechnung">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.priceFossil0}
+                    onChange={(e) => updateField("priceFossil0", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Preissteigerung (%/a)" hint="z. B. 2–5">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.incFossil}
+                    onChange={(e) => updateField("incFossil", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Wartung/Fixkosten (€/a)" hint="Schornsteinfeger etc.">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.maintFossil}
+                    onChange={(e) => updateField("maintFossil", e.target.value)}
+                  />
+                </Field>
+
+                <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 md:col-span-2">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-800">Investition (optional)</summary>
+                  <div className="mt-3 grid md:grid-cols-2 gap-4">
+                    <Field label="Investitionskosten fossil (€, einmalig)" hint="nur falls relevant">
+                      <input
+                        type="number"
+                        className="w-full border rounded-xl px-3 py-2"
+                        value={form.investFossil}
+                        onChange={(e) => updateField("investFossil", e.target.value)}
+                      />
+                    </Field>
+                    <div className="text-xs text-slate-600 leading-relaxed">
+                      Wenn die Anlage ohnehin erneuert werden muss, ist der Vergleich aussagekräftiger.
                     </div>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                          <Line type="monotone" dataKey="kumFossil" name="kumuliert fossil" stroke="#ef4444" dot={false} />
-                          <Line type="monotone" dataKey="kumHP" name="kumuliert Wärmepumpe" stroke="#2563eb" dot={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="text-xs text-slate-500 mb-2">Gesamtkosten ({perspective.label})</div>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={totalChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                          <Bar dataKey="kosten" name="Gesamtkosten">
-                            {totalChartData.map((entry, index) => (
-                              <Cell
-                                key={`cell-${index}`}
-                                fill={entry.name === "Fossil" ? "#ef4444" : "#2563eb"}
-                              />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-
-                <details className="mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-                    Details (jährliche Übersicht)
-                  </summary>
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="w-full text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 pr-2">Jahr</th>
-                          <th className="text-right py-2 px-2">CO₂-Preis</th>
-                          <th className="text-right py-2 px-2">Kosten fossil</th>
-                          <th className="text-right py-2 px-2">Kosten WP</th>
-                          <th className="text-right py-2 px-2">kumulierte Einsparung</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.rows.map((row) => {
-                          const annualF = (row as any)[
-                            role === "vermieter"
-                              ? "landlordAnnualFossil"
-                              : role === "mieter"
-                              ? "tenantAnnualFossil"
-                              : "ownerAnnualFossil"
-                          ] as number;
-
-                          const annualH = (row as any)[
-                            role === "vermieter"
-                              ? "landlordAnnualHP"
-                              : role === "mieter"
-                              ? "tenantAnnualHP"
-                              : "ownerAnnualHP"
-                          ] as number;
-
-                          const cumS = (row as any)[
-                            role === "vermieter"
-                              ? "landlordCumSavings"
-                              : role === "mieter"
-                              ? "tenantCumSavings"
-                              : "ownerCumSavings"
-                          ] as number;
-
-                          return (
-                            <tr key={row.year} className="border-b">
-                              <td className="py-2 pr-2">{row.year}</td>
-                              <td className="py-2 px-2 text-right">
-                                {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
-                              </td>
-                              <td className="py-2 px-2 text-right">{formatEuro(annualF, 0)}</td>
-                              <td className="py-2 px-2 text-right">{formatEuro(annualH, 0)}</td>
-                              <td className="py-2 px-2 text-right">{formatEuro(cumS, 0)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
                   </div>
                 </details>
-              </Section>
+              </div>
+            </Section>
+          )}
 
-              <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
+          {/* Step 3: Wärmepumpe + Calculate */}
+          {wizardStep === 3 && (
+            <Section
+              title="4) Wärmepumpe (Alternative)"
+              subtitle="Die Wirtschaftlichkeit hängt vor allem von JAZ, Strompreis und Förderung ab."
+              tone="hp"
+            >
+              <div className="grid md:grid-cols-2 gap-4">
+                <Field label="Stromquelle" hint="Einfluss auf CO₂">
+                  <select
+                    className="w-full border rounded-xl px-3 py-2 bg-white"
+                    value={form.carrierHP}
+                    onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}
+                  >
+                    <option value="Strom Stromix">Strom Stromix</option>
+                    <option value="Strom Erneuerbar">Strom Erneuerbar</option>
+                  </select>
+                </Field>
+
+                <Field label="JAZ (Jahresarbeitszahl)" hint="typisch 2,5–4,0">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.jaz}
+                    onChange={(e) => updateField("jaz", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Strompreis heute (ct/kWh)" hint="z. B. 25–40">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.priceEl0}
+                    onChange={(e) => updateField("priceEl0", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Preissteigerung Strom (%/a)" hint="z. B. 1–3">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.incEl}
+                    onChange={(e) => updateField("incEl", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Investitionskosten WP (€, brutto)" hint="Angebot / Schätzung">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.investHP}
+                    onChange={(e) => updateField("investHP", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Förderung (€, Zuschuss)" hint="aus Förderrechner">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.subsidyHP}
+                    onChange={(e) => updateField("subsidyHP", e.target.value)}
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Tipp: Im Tab „Fördermöglichkeiten prüfen“ berechnen und übernehmen.
+                  </div>
+                </Field>
+
+                <Field label="Wartung/Fixkosten (€/a)" hint="typisch geringer">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.maintHP}
+                    onChange={(e) => updateField("maintHP", e.target.value)}
+                  />
+                </Field>
+
+                <div className="md:col-span-2 rounded-xl border border-blue-200 bg-white px-4 py-3 text-xs text-slate-700">
+                  Wenn Sie unsicher sind: lassen Sie JAZ bei <b>3,0</b>. Reale Werte hängen stark von Vorlauf, Heizflächen und Gebäudezustand ab.
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="text-xs text-slate-600">
+                  Öffentlich nutzbar: Bitte nur Werte eingeben, die Sie teilen möchten. Es werden keine personenbezogenen Daten benötigt.
+                </div>
+
+                <button
+                  type="button"
+                  disabled={loading}
+                  className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
+                  onClick={handleCalc}
+                >
+                  {loading ? "Bewertung läuft ..." : "Wirtschaftlichkeit bewerten"}
+                </button>
+              </div>
+
+              {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
+            </Section>
+          )}
+
+          {/* Step 4: Ergebnis */}
+          {wizardStep === 4 && (
+            <>
+              {!result || !perspective ? (
+                <Section
+                  title="5) Ergebnis"
+                  subtitle="Bitte führen Sie zuerst die Berechnung im Schritt „Wärmepumpe“ aus."
+                  tone="result"
+                >
+                  <div className="text-slate-700">
+                    Kein Ergebnis vorhanden. Gehen Sie zurück und klicken Sie auf{" "}
+                    <b>„Wirtschaftlichkeit bewerten“</b>.
+                  </div>
+                </Section>
+              ) : (
+                <>
+                  <Section
+                    title="5) Ihre Entscheidung"
+                    subtitle="Das Ergebnis ist so formuliert, dass es auch ohne Beratung verständlich bleibt – inkl. Bericht."
+                    tone="result"
+                  >
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
+                      <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        {perspective.label}: {perspective.note}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid md:grid-cols-3 gap-4">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="text-xs text-slate-500">Mehrinvestition Wärmepumpe (netto)</div>
+                        <div className="text-xl font-semibold text-slate-900 mt-1">
+                          {formatEuro(result.extraInvest, 0)}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1">
+                          Netto = WP Invest minus Förderung (vereinfacht)
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="text-xs text-slate-500">Amortisation ({perspective.label})</div>
+                        <div className="text-xl font-semibold text-slate-900 mt-1">
+                          {result.extraInvest <= 0
+                            ? "Keine Mehrinvestition"
+                            : perspective.payback
+                            ? `${perspective.payback}. Jahr`
+                            : "Keine vollständige Amortisation"}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1">
+                          Falls keine Amortisation: Ergebnis mit anderen Annahmen prüfen.
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="text-xs text-slate-500">Wirtschaftlicher Effekt ({perspective.label})</div>
+                        <div
+                          className={
+                            "text-xl font-semibold mt-1 " +
+                            (perspective.savings > 0
+                              ? "text-emerald-700"
+                              : perspective.savings < 0
+                              ? "text-rose-700"
+                              : "text-slate-900")
+                          }
+                        >
+                          {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
+                            formatEuro(Math.abs(perspective.savings), 0)}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1">
+                          Positiv bedeutet: WP ist im Zeitraum günstiger.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div className="text-sm text-slate-700">
+                        <b>Tipp:</b> Erstellen Sie den Bericht direkt nach der Berechnung.
+                      </div>
+                      <button
+                        type="button"
+                        className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm font-semibold hover:bg-slate-50"
+                        onClick={() => setShowPrint(true)}
+                      >
+                        Bericht erstellen & drucken
+                      </button>
+                    </div>
+                  </Section>
+
+                  <Section
+                    title="Verlauf & Vergleich"
+                    subtitle="Zur schnellen Einordnung – im Bericht sind die Grafiken druckstabil."
+                    tone="result"
+                  >
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="text-xs text-slate-500 mb-2">
+                          Kumulierte Kosten ({perspective.label})
+                        </div>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
+                              <Line type="monotone" dataKey="kumFossil" name="kumuliert fossil" stroke="#ef4444" dot={false} />
+                              <Line type="monotone" dataKey="kumHP" name="kumuliert Wärmepumpe" stroke="#2563eb" dot={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="text-xs text-slate-500 mb-2">Gesamtkosten ({perspective.label})</div>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={totalChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                              <XAxis dataKey="name" />
+                              <YAxis />
+                              <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
+                              <Bar dataKey="kosten" name="Gesamtkosten">
+                                {totalChartData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.name === "Fossil" ? "#ef4444" : "#2563eb"} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+
+                    <details className="mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+                        Details (jährliche Übersicht)
+                      </summary>
+                      <div className="mt-4 overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left py-2 pr-2">Jahr</th>
+                              <th className="text-right py-2 px-2">CO₂-Preis</th>
+                              <th className="text-right py-2 px-2">Kosten fossil</th>
+                              <th className="text-right py-2 px-2">Kosten WP</th>
+                              <th className="text-right py-2 px-2">kumulierte Einsparung</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {result.rows.map((row) => {
+                              const annualF = (row as any)[
+                                role === "vermieter"
+                                  ? "landlordAnnualFossil"
+                                  : role === "mieter"
+                                  ? "tenantAnnualFossil"
+                                  : "ownerAnnualFossil"
+                              ] as number;
+
+                              const annualH = (row as any)[
+                                role === "vermieter"
+                                  ? "landlordAnnualHP"
+                                  : role === "mieter"
+                                  ? "tenantAnnualHP"
+                                  : "ownerAnnualHP"
+                              ] as number;
+
+                              const cumS = (row as any)[
+                                role === "vermieter"
+                                  ? "landlordCumSavings"
+                                  : role === "mieter"
+                                  ? "tenantCumSavings"
+                                  : "ownerCumSavings"
+                              ] as number;
+
+                              return (
+                                <tr key={row.year} className="border-b">
+                                  <td className="py-2 pr-2">{row.year}</td>
+                                  <td className="py-2 px-2 text-right">
+                                    {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
+                                  </td>
+                                  <td className="py-2 px-2 text-right">{formatEuro(annualF, 0)}</td>
+                                  <td className="py-2 px-2 text-right">{formatEuro(annualH, 0)}</td>
+                                  <td className="py-2 px-2 text-right">{formatEuro(cumS, 0)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </Section>
+
+                  <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
+                </>
+              )}
+            </>
+          )}
+
+          {/* Wizard nav */}
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium disabled:opacity-60"
+              onClick={back}
+              disabled={wizardStep === 0}
+            >
+              Zurück
+            </button>
+
+            <div className="text-xs text-slate-500">
+              {wizardStep < 4 ? "Weiter führt Sie Schritt für Schritt zur Entscheidung." : "Sie können den Bericht direkt drucken."}
+            </div>
+
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold disabled:opacity-60"
+              onClick={next}
+              disabled={wizardStep === 3 /* Step 4 is result: reached only via calc */ || wizardStep === 4}
+              title={wizardStep === 3 ? "Bitte zuerst berechnen" : "Weiter"}
+            >
+              Weiter
+            </button>
+          </div>
+
+          {wizardStep === 3 && (
+            <div className="text-[11px] text-slate-500">
+              Hinweis: Der Schritt „Ergebnis“ wird nach erfolgreicher Berechnung automatisch geöffnet.
             </div>
           )}
-        </>
+        </div>
       )}
 
       {tab === "foerder" && (
@@ -1708,7 +1894,9 @@ export default function ToolPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <div className="text-xs text-slate-500">Investitionskosten Wärmepumpe (aus Vergleich)</div>
                 <div className="text-lg font-semibold text-slate-900">{formatEuro(form.investHP, 0)}</div>
-                <div className="text-[11px] text-slate-500 mt-1">Sie ändern den Wert im Tab „Wirtschaftlichkeit bewerten“.</div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Sie ändern den Wert im Wizard-Schritt „Wärmepumpe“.
+                </div>
               </div>
 
               {foerderForm.art === "wohn" ? (
@@ -1765,7 +1953,7 @@ export default function ToolPage() {
             </form>
           </Section>
 
-          <Section title="Ergebnis & Übernahme" subtitle="Übernehmen Sie den Zuschuss direkt in den Vergleich." tone="neutral">
+          <Section title="Ergebnis & Übernahme" subtitle="Übernehmen Sie den Zuschuss direkt in den Wizard." tone="neutral">
             {!foerderResult ? (
               <div className="text-slate-600 text-sm">
                 Berechnen Sie rechts die Förderung. Danach können Sie den Zuschuss per Button übernehmen.
@@ -1794,14 +1982,17 @@ export default function ToolPage() {
                     onClick={() => {
                       setForm((prev) => ({ ...prev, subsidyHP: Math.round(foerderResult.foerderEuro) }));
                       setSubsidyApplied(true);
+                      // return to wizard at WP step for a clear flow
                       setTab("vergleich");
+                      setWizardStep(3);
+                      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
                     }}
                   >
                     {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss in Vergleich übernehmen"}
                   </button>
 
                   <div className="mt-2 text-[11px] text-slate-500">
-                    Springt automatisch zurück zum Vergleich und trägt den Zuschuss ein.
+                    Springt zurück zum Wizard-Schritt „Wärmepumpe“ und trägt den Zuschuss ein.
                   </div>
                 </div>
 
@@ -1816,6 +2007,7 @@ export default function ToolPage() {
         </div>
       )}
 
+      {/* Public Footer */}
       <div className="mt-10 text-xs text-slate-500 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>© {new Date().getFullYear()} Brüser Energieberatung · Dieses Tool ist eine Entscheidungshilfe.</div>
         <div className="flex gap-3">
