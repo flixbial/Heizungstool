@@ -119,6 +119,38 @@ interface FoerderResult {
   foerderhoechstbetragNWG: number | null;
 }
 
+// ===== Defaults (für Neustart) =====
+const DEFAULT_FORM: FormState = {
+  heatDemand: 30000,
+  area: 500,
+  units: 4,
+  years: 20,
+  scenario: "Experten",
+  carrierFossil: "Heizöl",
+  carrierHP: "Strom Stromix",
+
+  investFossil: 30000,
+  effFossil: 90,
+  priceFossil0: 10,
+  incFossil: 3,
+  maintFossil: 800,
+
+  investHP: 60000,
+  subsidyHP: 15000,
+  jaz: 3.0,
+  priceEl0: 30,
+  incEl: 2,
+  maintHP: 600,
+};
+
+const DEFAULT_FOERDER_FORM: FoerderForm = {
+  art: "wohn",
+  wohnKlimaBonus: false,
+  wohnEinkommensBonus: false,
+  wohnEffizienzBonus: false,
+  nwgEffizienzBonus: false,
+};
+
 function formatEuro(value: number, decimals = 0) {
   return (
     Number(value || 0).toLocaleString("de-DE", {
@@ -322,7 +354,7 @@ function MiniCostChart({
         Kumulierte Kosten im Zeitverlauf
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg">
+      <svg width="100%" viewBox={`0 0 ${w} 0 ${h}`.replace(" 0 ", " ")} xmlns="http://www.w3.org/2000/svg">
         <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
         <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
 
@@ -682,28 +714,7 @@ export default function ToolPage() {
   const [tab, setTab] = useState<"vergleich">("vergleich");
   const [role, setRole] = useState<Role>("eigentuemer");
 
-  const [form, setForm] = useState<FormState>({
-    heatDemand: 30000,
-    area: 500,
-    units: 4,
-    years: 20,
-    scenario: "Experten",
-    carrierFossil: "Heizöl",
-    carrierHP: "Strom Stromix",
-
-    investFossil: 30000,
-    effFossil: 90,
-    priceFossil0: 10,
-    incFossil: 3,
-    maintFossil: 800,
-
-    investHP: 60000,
-    subsidyHP: 15000,
-    jaz: 3.0,
-    priceEl0: 30,
-    incEl: 2,
-    maintHP: 600,
-  });
+  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
 
   // ===== Quick-Start Presets =====
   type PresetKey = "efh" | "mfh" | "gewerbe";
@@ -806,13 +817,7 @@ export default function ToolPage() {
     []
   );
 
-  const [foerderForm, setFoerderForm] = useState<FoerderForm>({
-    art: "wohn",
-    wohnKlimaBonus: false,
-    wohnEinkommensBonus: false,
-    wohnEffizienzBonus: false,
-    nwgEffizienzBonus: false,
-  });
+  const [foerderForm, setFoerderForm] = useState<FoerderForm>(DEFAULT_FOERDER_FORM);
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CalcResult | null>(null);
@@ -825,6 +830,9 @@ export default function ToolPage() {
   const [subsidyApplied, setSubsidyApplied] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
 
+  // ✅ neu: merken, ob der Bericht mindestens einmal geöffnet wurde
+  const [hasOpenedReport, setHasOpenedReport] = useState(false);
+
   function applyPreset(key: PresetKey) {
     const preset = PRESETS[key];
     setForm((prev) => ({ ...prev, ...preset.patch }));
@@ -836,6 +844,7 @@ export default function ToolPage() {
     setFoerderResult(null);
     setFoerderError(null);
     setSubsidyApplied(false);
+    setHasOpenedReport(false);
   }
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
@@ -901,6 +910,31 @@ export default function ToolPage() {
     } finally {
       setFoerderLoading(false);
     }
+  }
+
+  // ✅ neu: Neustart (für Ergebnis-Reiter)
+  function handleRestart() {
+    setShowPrint(false);
+    setResult(null);
+    setError(null);
+
+    setFoerderResult(null);
+    setFoerderError(null);
+    setFoerderLoading(false);
+
+    setSubsidyApplied(false);
+    setHasOpenedReport(false);
+
+    setActivePreset(null);
+    setRole("eigentuemer");
+    setFoerderForm(DEFAULT_FOERDER_FORM);
+    setForm(DEFAULT_FORM);
+
+    setWizardStep(0);
+
+    // falls du später LocalStorage nutzt:
+    // localStorage.removeItem("heizungstool_state");
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
   const perspective = useMemo(() => {
@@ -1247,6 +1281,7 @@ export default function ToolPage() {
                       onChange={(e) => {
                         setRole(e.target.value as Role);
                         setResult(null);
+                        setHasOpenedReport(false);
                       }}
                     >
                       <option value="eigentuemer">Eigentümer (Selbstnutzer)</option>
@@ -1657,6 +1692,7 @@ export default function ToolPage() {
                             }));
                             setSubsidyApplied(true);
                             setResult(null);
+                            setHasOpenedReport(false);
                           }}
                         >
                           {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss übernehmen"}
@@ -1758,18 +1794,44 @@ export default function ToolPage() {
                       </div>
                     </div>
 
+                    {/* ✅ Actions: Bericht + Neustart im Ergebnis-Reiter */}
                     <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                       <div className="text-sm text-slate-700">
                         <b>Tipp:</b> Erstellen Sie den Bericht direkt nach der Berechnung.
                       </div>
-                      <button
-                        type="button"
-                        className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm font-semibold hover:bg-slate-50"
-                        onClick={() => setShowPrint(true)}
-                      >
-                        Bericht erstellen & drucken
-                      </button>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          type="button"
+                          className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm font-semibold hover:bg-slate-50"
+                          onClick={() => {
+                            setShowPrint(true);
+                            setHasOpenedReport(true);
+                          }}
+                        >
+                          Bericht erstellen & drucken
+                        </button>
+
+                        {/* Neustart immer sichtbar ODER nur nach Bericht öffnen:
+                            Wenn du es nur nach Bericht willst, ersetze "true" durch "hasOpenedReport". */}
+                        {true && (
+                          <button
+                            type="button"
+                            className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
+                            onClick={handleRestart}
+                            title={hasOpenedReport ? "Neustart nach Bericht" : "Neustart des Tools"}
+                          >
+                            Neustart
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {hasOpenedReport && (
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Hinweis: Neustart setzt alle Eingaben und Ergebnisse zurück und startet den Wizard neu.
+                      </div>
+                    )}
                   </Section>
 
                   <Section title="Verlauf & Vergleich" subtitle="Grafiken sind auch im Bericht druckstabil." tone="result">
@@ -1811,7 +1873,13 @@ export default function ToolPage() {
                     </div>
                   </Section>
 
-                  <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
+                  <PrintModal
+                    open={showPrint}
+                    onClose={() => setShowPrint(false)}
+                    role={role}
+                    form={form}
+                    result={result}
+                  />
                 </>
               )}
             </>
@@ -1840,7 +1908,6 @@ export default function ToolPage() {
               type="button"
               className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold disabled:opacity-60"
               onClick={next}
-              // Step 4 -> Ergebnis darf man nicht "weiterklicken", Ergebnis öffnet sich nach Berechnung.
               disabled={wizardStep === 4 || wizardStep === 5}
               title={wizardStep === 4 ? "Bitte hier das Gesamtergebnis berechnen" : "Weiter"}
             >
