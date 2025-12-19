@@ -238,7 +238,7 @@ function WizardHeader({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-5 gap-2">
+      <div className="mt-4 grid grid-cols-6 gap-2">
         {steps.map((s, idx) => {
           const active = idx === current;
           const enabled = canGoTo(idx);
@@ -322,13 +322,7 @@ function MiniCostChart({
         Kumulierte Kosten im Zeitverlauf
       </div>
 
-      <svg
-        width="100%"
-        viewBox={`0 0 ${w} ${h}`}
-        xmlns="http://www.w3.org/2000/svg"
-        role="img"
-        aria-label="Kumulierte Kosten"
-      >
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg">
         <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
         <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
 
@@ -346,7 +340,6 @@ function MiniCostChart({
         <line x1={pad} x2={w - pad} y1={h - pad} y2={h - pad} stroke="#e2e8f0" />
         <line x1={pad} x2={pad} y1={pad} y2={h - pad} stroke="#e2e8f0" />
 
-        {/* Fossil rot, WP blau */}
         <path d={dF} fill="none" stroke="#ef4444" strokeWidth="3" />
         <path d={dH} fill="none" stroke="#2563eb" strokeWidth="3" />
 
@@ -404,13 +397,7 @@ function MiniTotalBarChart({
         Gesamtkosten im Zeitraum
       </div>
 
-      <svg
-        width="100%"
-        viewBox={`0 0 ${w} ${h}`}
-        xmlns="http://www.w3.org/2000/svg"
-        role="img"
-        aria-label="Gesamtkosten Balken"
-      >
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg">
         <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
         <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
 
@@ -473,17 +460,9 @@ function PrintModal({
 }) {
   const totals =
     role === "vermieter"
-      ? {
-          fossil: result.totalLandlordFossil,
-          wp: result.totalLandlordHP,
-          savings: result.savingsLandlord,
-        }
+      ? { fossil: result.totalLandlordFossil, wp: result.totalLandlordHP, savings: result.savingsLandlord }
       : role === "mieter"
-      ? {
-          fossil: result.totalTenantFossil,
-          wp: result.totalTenantHP,
-          savings: result.savingsTenant,
-        }
+      ? { fossil: result.totalTenantFossil, wp: result.totalTenantHP, savings: result.savingsTenant }
       : { fossil: result.totalOwnerFossil, wp: result.totalOwnerHP, savings: result.savingsOwner };
 
   const series =
@@ -700,7 +679,7 @@ function PrintModal({
 }
 
 export default function ToolPage() {
-  const [tab, setTab] = useState<"vergleich" | "foerder">("vergleich");
+  const [tab, setTab] = useState<"vergleich">("vergleich");
   const [role, setRole] = useState<Role>("eigentuemer");
 
   const [form, setForm] = useState<FormState>({
@@ -714,14 +693,14 @@ export default function ToolPage() {
 
     investFossil: 30000,
     effFossil: 90,
-    priceFossil0: 10, // ct/kWh
+    priceFossil0: 10,
     incFossil: 3,
     maintFossil: 800,
 
     investHP: 60000,
     subsidyHP: 15000,
     jaz: 3.0,
-    priceEl0: 30, // ct/kWh
+    priceEl0: 30,
     incEl: 2,
     maintHP: 600,
   });
@@ -812,7 +791,7 @@ export default function ToolPage() {
   const [activePreset, setActivePreset] = useState<PresetKey | null>(null);
 
   // ===== Wizard State =====
-  // 0 Situation/Preset, 1 Gebäude, 2 Fossil, 3 WP, 4 Ergebnis
+  // 0 Start, 1 Gebäude, 2 Fossil, 3 WP, 4 Förderung, 5 Ergebnis
   const [wizardStep, setWizardStep] = useState<number>(0);
 
   const wizardSteps = useMemo(
@@ -821,6 +800,7 @@ export default function ToolPage() {
       { title: "Gebäude & Zeitraum", short: "Gebäude" },
       { title: "Bestehende Heizung", short: "Fossil" },
       { title: "Wärmepumpe", short: "WP" },
+      { title: "Fördermöglichkeiten", short: "Förderung" },
       { title: "Ergebnis & Bericht", short: "Ergebnis" },
     ],
     []
@@ -845,13 +825,6 @@ export default function ToolPage() {
   const [subsidyApplied, setSubsidyApplied] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
 
-  // Reset wizard when switching tabs
-  useEffect(() => {
-    if (tab === "vergleich") return;
-    // keep wizard state, but avoid confusion when returning:
-    // (optional) do nothing. We'll reset when user returns to compare.
-  }, [tab]);
-
   function applyPreset(key: PresetKey) {
     const preset = PRESETS[key];
     setForm((prev) => ({ ...prev, ...preset.patch }));
@@ -860,15 +833,17 @@ export default function ToolPage() {
 
     setResult(null);
     setError(null);
+    setFoerderResult(null);
+    setFoerderError(null);
+    setSubsidyApplied(false);
   }
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
-    setActivePreset(null); // editing => custom
+    setActivePreset(null);
     setForm((prev) => ({
       ...prev,
       [key]: typeof prev[key] === "number" ? Number(value.replace(",", ".")) : (value as any),
     }));
-    // if inputs change, result is no longer valid
     setResult(null);
   }
 
@@ -885,11 +860,8 @@ export default function ToolPage() {
       if (!res.ok) throw new Error("Fehler bei der Berechnung");
       const data = (await res.json()) as CalcResult;
       setResult(data);
-      setWizardStep(4);
-      // Scroll to top of wizard area for public UX
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      });
+      setWizardStep(5);
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
     } catch (err: any) {
       setError(err.message ?? "Unbekannter Fehler");
     } finally {
@@ -901,8 +873,7 @@ export default function ToolPage() {
     setFoerderForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function handleFoerderCalc(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleFoerderCalc() {
     setFoerderLoading(true);
     setFoerderError(null);
     setFoerderResult(null);
@@ -992,32 +963,26 @@ export default function ToolPage() {
 
   const hint = getPrintHint(role);
 
-  // Wizard gating: Ergebnis-Step nur wenn result vorhanden
+  // Ergebnis-Step nur wenn result vorhanden
   function canGoTo(idx: number) {
-    if (idx < 4) return true;
+    if (idx < 5) return true;
     return !!result;
   }
 
   function goTo(idx: number) {
     if (!canGoTo(idx)) return;
     setWizardStep(idx);
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
   function next() {
-    if (wizardStep < 4) setWizardStep((s) => Math.min(4, s + 1));
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
+    setWizardStep((s) => Math.min(5, s + 1));
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
   function back() {
-    if (wizardStep > 0) setWizardStep((s) => Math.max(0, s - 1));
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
+    setWizardStep((s) => Math.max(0, s - 1));
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
   return (
@@ -1248,12 +1213,13 @@ export default function ToolPage() {
         }
       `}</style>
 
-      {/* Premium Header */}
       <div className="flex items-center justify-between gap-4 mb-8">
         <div>
-          <div className="text-3xl font-semibold text-slate-900 leading-tight">Heizungs-Vergleich</div>
+          <div className="text-3xl font-semibold text-slate-900 leading-tight">
+            Heizungs-Vergleich
+          </div>
           <div className="mt-2 text-slate-600 max-w-2xl">
-            Eine verständliche Wirtschaftlichkeits-Einschätzung für <b>Fossil</b> vs. <b>Wärmepumpe</b> – inkl. druckfähigem Bericht.
+            Geführter Wizard inkl. <b>Förder-Schritt</b> vor der Berechnung – inkl. druckfähigem Bericht.
           </div>
         </div>
         <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
@@ -1262,51 +1228,16 @@ export default function ToolPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="mt-2 flex items-center gap-2 border-b">
-        <button
-          className={
-            "px-4 py-3 text-sm -mb-px border-b-2 " +
-            (tab === "vergleich"
-              ? "border-slate-900 text-slate-900 font-medium"
-              : "border-transparent text-slate-500 hover:text-slate-800")
-          }
-          onClick={() => {
-            setTab("vergleich");
-            // public-friendly: start at beginning when returning
-            setWizardStep(0);
-          }}
-        >
-          Geführter Vergleich (Wizard)
-        </button>
-        <button
-          className={
-            "px-4 py-3 text-sm -mb-px border-b-2 " +
-            (tab === "foerder"
-              ? "border-slate-900 text-slate-900 font-medium"
-              : "border-transparent text-slate-500 hover:text-slate-800")
-          }
-          onClick={() => setTab("foerder")}
-        >
-          Fördermöglichkeiten prüfen
-        </button>
-      </div>
-
       {tab === "vergleich" && (
-        <div className="mt-6 grid gap-6">
-          <WizardHeader
-            steps={wizardSteps}
-            current={wizardStep}
-            canGoTo={canGoTo}
-            onGoTo={goTo}
-          />
+        <div className="mt-2 grid gap-6">
+          <WizardHeader steps={wizardSteps} current={wizardStep} canGoTo={canGoTo} onGoTo={goTo} />
 
-          {/* Step 0: Situation + Presets */}
+          {/* Step 0 */}
           {wizardStep === 0 && (
             <>
               <Section
                 title="1) Ihre Situation"
-                subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile. So wird das Ergebnis realistischer."
+                subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile."
               >
                 <div className="grid md:grid-cols-2 gap-4">
                   <Field label="Rolle / Zielgruppe" hint="wirkt sich auf die Bewertung aus">
@@ -1327,9 +1258,6 @@ export default function ToolPage() {
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                     <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
                     <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
-                    <div className="mt-2 text-[11px] text-slate-500">
-                      Hinweis: vereinfachtes Modell. Ziel ist eine robuste, erklärbare Entscheidungshilfe.
-                    </div>
                   </div>
                 </div>
               </Section>
@@ -1385,7 +1313,7 @@ export default function ToolPage() {
                     </>
                   ) : (
                     <>
-                      <b>Tipp:</b> Presets erleichtern den Einstieg. Wenn Sie bereits konkrete Rechnungen/Angebote haben, tragen Sie diese in den nächsten Schritten ein.
+                      <b>Tipp:</b> Presets erleichtern den Einstieg. Wenn Sie konkrete Rechnungen/Angebote haben, tragen Sie diese ein.
                     </>
                   )}
                 </div>
@@ -1393,12 +1321,9 @@ export default function ToolPage() {
             </>
           )}
 
-          {/* Step 1: Gebäude */}
+          {/* Step 1 */}
           {wizardStep === 1 && (
-            <Section
-              title="2) Gebäude & Zeitraum"
-              subtitle="Diese Angaben bestimmen die Größenordnung der Kosten und die Vergleichbarkeit."
-            >
+            <Section title="2) Gebäude & Zeitraum" subtitle="Diese Angaben bestimmen die Größenordnung der Kosten.">
               <div className="grid md:grid-cols-4 gap-4">
                 <Field label="Heizwärmebedarf (kWh/Jahr)" hint="z. B. aus Abrechnung">
                   <input
@@ -1456,20 +1381,16 @@ export default function ToolPage() {
                     </select>
                   </Field>
                   <div className="text-xs text-slate-600 leading-relaxed">
-                    Wenn Sie unsicher sind: lassen Sie <b>„Experten“</b> stehen. Der Bericht zeigt die Annahmen transparent.
+                    Wenn Sie unsicher sind: lassen Sie <b>„Experten“</b> stehen.
                   </div>
                 </div>
               </details>
             </Section>
           )}
 
-          {/* Step 2: Fossil */}
+          {/* Step 2 */}
           {wizardStep === 2 && (
-            <Section
-              title="3) Bestehende Heizung (Referenz)"
-              subtitle="Je realistischer der Ausgangspunkt, desto besser die Einordnung."
-              tone="fossil"
-            >
+            <Section title="3) Bestehende Heizung (Referenz)" subtitle="Je realistischer, desto besser." tone="fossil">
               <div className="grid md:grid-cols-2 gap-4">
                 <Field label="Energieträger" hint="Ausgangspunkt">
                   <select
@@ -1532,7 +1453,7 @@ export default function ToolPage() {
                       />
                     </Field>
                     <div className="text-xs text-slate-600 leading-relaxed">
-                      Wenn die Anlage ohnehin erneuert werden muss, ist der Vergleich aussagekräftiger.
+                      Wenn ohnehin erneuert werden muss, ist der Vergleich aussagekräftiger.
                     </div>
                   </div>
                 </details>
@@ -1540,13 +1461,9 @@ export default function ToolPage() {
             </Section>
           )}
 
-          {/* Step 3: Wärmepumpe + Calculate */}
+          {/* Step 3 */}
           {wizardStep === 3 && (
-            <Section
-              title="4) Wärmepumpe (Alternative)"
-              subtitle="Die Wirtschaftlichkeit hängt vor allem von JAZ, Strompreis und Förderung ab."
-              tone="hp"
-            >
+            <Section title="4) Wärmepumpe (Alternative)" subtitle="JAZ, Strompreis und Förderung sind entscheidend." tone="hp">
               <div className="grid md:grid-cols-2 gap-4">
                 <Field label="Stromquelle" hint="Einfluss auf CO₂">
                   <select
@@ -1595,7 +1512,7 @@ export default function ToolPage() {
                   />
                 </Field>
 
-                <Field label="Förderung (€, Zuschuss)" hint="aus Förderrechner">
+                <Field label="Förderung (€, Zuschuss)" hint="wird im nächsten Schritt berechnet">
                   <input
                     type="number"
                     className="w-full border rounded-xl px-3 py-2"
@@ -1603,7 +1520,7 @@ export default function ToolPage() {
                     onChange={(e) => updateField("subsidyHP", e.target.value)}
                   />
                   <div className="mt-1 text-[11px] text-slate-500">
-                    Tipp: Im Tab „Fördermöglichkeiten prüfen“ berechnen und übernehmen.
+                    Im nächsten Schritt „Fördermöglichkeiten“ können Sie den Zuschuss berechnen und übernehmen.
                   </div>
                 </Field>
 
@@ -1617,50 +1534,182 @@ export default function ToolPage() {
                 </Field>
 
                 <div className="md:col-span-2 rounded-xl border border-blue-200 bg-white px-4 py-3 text-xs text-slate-700">
-                  Wenn Sie unsicher sind: lassen Sie JAZ bei <b>3,0</b>. Reale Werte hängen stark von Vorlauf, Heizflächen und Gebäudezustand ab.
+                  Tipp: Wenn Sie unsicher sind, lassen Sie JAZ bei <b>3,0</b>.
                 </div>
               </div>
-
-              <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div className="text-xs text-slate-600">
-                  Öffentlich nutzbar: Bitte nur Werte eingeben, die Sie teilen möchten. Es werden keine personenbezogenen Daten benötigt.
-                </div>
-
-                <button
-                  type="button"
-                  disabled={loading}
-                  className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
-                  onClick={handleCalc}
-                >
-                  {loading ? "Bewertung läuft ..." : "Wirtschaftlichkeit bewerten"}
-                </button>
-              </div>
-
-              {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
             </Section>
           )}
 
-          {/* Step 4: Ergebnis */}
+          {/* Step 4: Förderung */}
           {wizardStep === 4 && (
+            <Section
+              title="5) Fördermöglichkeiten (optional, empfohlen)"
+              subtitle="Berechnen Sie den Zuschuss und übernehmen Sie ihn in den Vergleich."
+              tone="neutral"
+            >
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <Field label="Gebäudeart">
+                    <select
+                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      value={foerderForm.art}
+                      onChange={(e) => updateFoerderField("art", e.target.value as "wohn" | "nichtwohn")}
+                    >
+                      <option value="wohn">Wohngebäude</option>
+                      <option value="nichtwohn">Nichtwohngebäude</option>
+                    </select>
+                  </Field>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="text-xs text-slate-500">Investitionskosten Wärmepumpe (aus Schritt 4)</div>
+                    <div className="text-lg font-semibold text-slate-900">{formatEuro(form.investHP, 0)}</div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Diese Grundlage wird für die Förderberechnung verwendet.
+                    </div>
+                  </div>
+
+                  {foerderForm.art === "wohn" ? (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold text-slate-900">Wohngebäude-Optionen</div>
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={foerderForm.wohnKlimaBonus}
+                          onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)}
+                        />
+                        Klima-Geschwindigkeitsbonus
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={foerderForm.wohnEinkommensBonus}
+                          onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)}
+                        />
+                        Einkommensbonus
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={foerderForm.wohnEffizienzBonus}
+                          onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)}
+                        />
+                        Effizienzbonus
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold text-slate-900">Nichtwohngebäude-Optionen</div>
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={foerderForm.nwgEffizienzBonus}
+                          onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)}
+                        />
+                        Effizienzbonus
+                      </label>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={foerderLoading}
+                    className="w-full px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
+                    onClick={handleFoerderCalc}
+                  >
+                    {foerderLoading ? "Förderung wird berechnet ..." : "Förderung berechnen"}
+                  </button>
+
+                  {foerderError && <div className="text-sm text-red-600">{foerderError}</div>}
+                </div>
+
+                <div className="space-y-4">
+                  {!foerderResult ? (
+                    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-600">
+                      Berechnen Sie links die Förderung. Danach können Sie den Zuschuss übernehmen.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                        <div className="text-xs text-slate-500">Förderquote</div>
+                        <div className="text-xl font-semibold text-slate-900">
+                          {foerderResult.foerderProzent.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                        <div className="text-xs text-slate-500">Geschätzter Zuschuss</div>
+                        <div className="text-xl font-semibold text-slate-900">
+                          {formatEuro(foerderResult.foerderEuro, 0)}
+                        </div>
+
+                        <button
+                          type="button"
+                          className={
+                            "w-full mt-3 px-5 py-3 rounded-2xl text-sm font-semibold " +
+                            (subsidyApplied
+                              ? "bg-emerald-600 text-white"
+                              : "bg-slate-900 text-white hover:bg-slate-800")
+                          }
+                          onClick={() => {
+                            setForm((prev) => ({
+                              ...prev,
+                              subsidyHP: Math.round(foerderResult.foerderEuro),
+                            }));
+                            setSubsidyApplied(true);
+                            setResult(null);
+                          }}
+                        >
+                          {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss übernehmen"}
+                        </button>
+
+                        <div className="mt-2 text-[11px] text-slate-500">
+                          Der Zuschuss wird in Schritt 4 (WP) und in der Gesamtrechnung berücksichtigt.
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="text-xs text-slate-500">Verbleibende Investition nach Zuschuss</div>
+                        <div className="text-xl font-semibold text-slate-900">{formatEuro(foerderResult.restInvest, 0)}</div>
+                        <div className="mt-1 text-[11px] text-slate-500">Alle Angaben ohne Gewähr.</div>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                    <div className="text-sm font-semibold text-slate-900">Jetzt Gesamtergebnis berechnen</div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      Optional: Sie können auch ohne Förderberechnung fortfahren (Zuschuss ggf. manuell eintragen).
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={loading}
+                      className="w-full mt-3 px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
+                      onClick={handleCalc}
+                    >
+                      {loading ? "Berechnung läuft ..." : "Gesamtergebnis berechnen"}
+                    </button>
+
+                    {error && <div className="mt-2 text-sm text-red-600">{error}</div>}
+                  </div>
+                </div>
+              </div>
+            </Section>
+          )}
+
+          {/* Step 5: Ergebnis */}
+          {wizardStep === 5 && (
             <>
               {!result || !perspective ? (
-                <Section
-                  title="5) Ergebnis"
-                  subtitle="Bitte führen Sie zuerst die Berechnung im Schritt „Wärmepumpe“ aus."
-                  tone="result"
-                >
+                <Section title="6) Ergebnis" subtitle="Bitte zuerst im Förder-Schritt die Gesamtrechnung starten." tone="result">
                   <div className="text-slate-700">
-                    Kein Ergebnis vorhanden. Gehen Sie zurück und klicken Sie auf{" "}
-                    <b>„Wirtschaftlichkeit bewerten“</b>.
+                    Kein Ergebnis vorhanden. Gehen Sie zurück zu Schritt 5 und klicken Sie auf{" "}
+                    <b>„Gesamtergebnis berechnen“</b>.
                   </div>
                 </Section>
               ) : (
                 <>
-                  <Section
-                    title="5) Ihre Entscheidung"
-                    subtitle="Das Ergebnis ist so formuliert, dass es auch ohne Beratung verständlich bleibt – inkl. Bericht."
-                    tone="result"
-                  >
+                  <Section title="6) Ihre Entscheidung" subtitle="Verständlich formuliert – inkl. Bericht." tone="result">
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
                       <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
@@ -1689,9 +1738,6 @@ export default function ToolPage() {
                             ? `${perspective.payback}. Jahr`
                             : "Keine vollständige Amortisation"}
                         </div>
-                        <div className="text-[11px] text-slate-500 mt-1">
-                          Falls keine Amortisation: Ergebnis mit anderen Annahmen prüfen.
-                        </div>
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -1708,9 +1754,6 @@ export default function ToolPage() {
                         >
                           {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
                             formatEuro(Math.abs(perspective.savings), 0)}
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-1">
-                          Positiv bedeutet: WP ist im Zeitraum günstiger.
                         </div>
                       </div>
                     </div>
@@ -1729,11 +1772,7 @@ export default function ToolPage() {
                     </div>
                   </Section>
 
-                  <Section
-                    title="Verlauf & Vergleich"
-                    subtitle="Zur schnellen Einordnung – im Bericht sind die Grafiken druckstabil."
-                    tone="result"
-                  >
+                  <Section title="Verlauf & Vergleich" subtitle="Grafiken sind auch im Bericht druckstabil." tone="result">
                     <div className="grid md:grid-cols-2 gap-6">
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
                         <div className="text-xs text-slate-500 mb-2">
@@ -1745,8 +1784,8 @@ export default function ToolPage() {
                               <XAxis dataKey="name" />
                               <YAxis />
                               <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                              <Line type="monotone" dataKey="kumFossil" name="kumuliert fossil" stroke="#ef4444" dot={false} />
-                              <Line type="monotone" dataKey="kumHP" name="kumuliert Wärmepumpe" stroke="#2563eb" dot={false} />
+                              <Line type="monotone" dataKey="kumFossil" stroke="#ef4444" dot={false} />
+                              <Line type="monotone" dataKey="kumHP" stroke="#2563eb" dot={false} />
                             </LineChart>
                           </ResponsiveContainer>
                         </div>
@@ -1760,7 +1799,7 @@ export default function ToolPage() {
                               <XAxis dataKey="name" />
                               <YAxis />
                               <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                              <Bar dataKey="kosten" name="Gesamtkosten">
+                              <Bar dataKey="kosten">
                                 {totalChartData.map((entry, index) => (
                                   <Cell key={`cell-${index}`} fill={entry.name === "Fossil" ? "#ef4444" : "#2563eb"} />
                                 ))}
@@ -1770,64 +1809,6 @@ export default function ToolPage() {
                         </div>
                       </div>
                     </div>
-
-                    <details className="mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-4">
-                      <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-                        Details (jährliche Übersicht)
-                      </summary>
-                      <div className="mt-4 overflow-x-auto">
-                        <table className="w-full text-xs border-collapse">
-                          <thead>
-                            <tr className="border-b">
-                              <th className="text-left py-2 pr-2">Jahr</th>
-                              <th className="text-right py-2 px-2">CO₂-Preis</th>
-                              <th className="text-right py-2 px-2">Kosten fossil</th>
-                              <th className="text-right py-2 px-2">Kosten WP</th>
-                              <th className="text-right py-2 px-2">kumulierte Einsparung</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {result.rows.map((row) => {
-                              const annualF = (row as any)[
-                                role === "vermieter"
-                                  ? "landlordAnnualFossil"
-                                  : role === "mieter"
-                                  ? "tenantAnnualFossil"
-                                  : "ownerAnnualFossil"
-                              ] as number;
-
-                              const annualH = (row as any)[
-                                role === "vermieter"
-                                  ? "landlordAnnualHP"
-                                  : role === "mieter"
-                                  ? "tenantAnnualHP"
-                                  : "ownerAnnualHP"
-                              ] as number;
-
-                              const cumS = (row as any)[
-                                role === "vermieter"
-                                  ? "landlordCumSavings"
-                                  : role === "mieter"
-                                  ? "tenantCumSavings"
-                                  : "ownerCumSavings"
-                              ] as number;
-
-                              return (
-                                <tr key={row.year} className="border-b">
-                                  <td className="py-2 pr-2">{row.year}</td>
-                                  <td className="py-2 px-2 text-right">
-                                    {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
-                                  </td>
-                                  <td className="py-2 px-2 text-right">{formatEuro(annualF, 0)}</td>
-                                  <td className="py-2 px-2 text-right">{formatEuro(annualH, 0)}</td>
-                                  <td className="py-2 px-2 text-right">{formatEuro(cumS, 0)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </details>
                   </Section>
 
                   <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
@@ -1848,21 +1829,26 @@ export default function ToolPage() {
             </button>
 
             <div className="text-xs text-slate-500">
-              {wizardStep < 4 ? "Weiter führt Sie Schritt für Schritt zur Entscheidung." : "Sie können den Bericht direkt drucken."}
+              {wizardStep < 4
+                ? "Weiter führt Sie Schritt für Schritt."
+                : wizardStep === 4
+                ? "Hier optional Förderung berechnen und danach Gesamtergebnis starten."
+                : "Ergebnis fertig – Bericht drucken."}
             </div>
 
             <button
               type="button"
               className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold disabled:opacity-60"
               onClick={next}
-              disabled={wizardStep === 3 /* Step 4 is result: reached only via calc */ || wizardStep === 4}
-              title={wizardStep === 3 ? "Bitte zuerst berechnen" : "Weiter"}
+              // Step 4 -> Ergebnis darf man nicht "weiterklicken", Ergebnis öffnet sich nach Berechnung.
+              disabled={wizardStep === 4 || wizardStep === 5}
+              title={wizardStep === 4 ? "Bitte hier das Gesamtergebnis berechnen" : "Weiter"}
             >
               Weiter
             </button>
           </div>
 
-          {wizardStep === 3 && (
+          {wizardStep === 4 && (
             <div className="text-[11px] text-slate-500">
               Hinweis: Der Schritt „Ergebnis“ wird nach erfolgreicher Berechnung automatisch geöffnet.
             </div>
@@ -1870,144 +1856,6 @@ export default function ToolPage() {
         </div>
       )}
 
-      {tab === "foerder" && (
-        <div className="mt-6 grid md:grid-cols-2 gap-6">
-          <Section
-            title="Förderung berechnen"
-            subtitle="Vereinfachte Auswahl. Ziel ist eine belastbare Größenordnung – nicht die rechtliche Bewertung."
-            tone="neutral"
-          >
-            <form onSubmit={handleFoerderCalc} className="space-y-4">
-              <Field label="Gebäudeart">
-                <select
-                  className="w-full border rounded-xl px-3 py-2 bg-white"
-                  value={foerderForm.art}
-                  onChange={(e) =>
-                    updateFoerderField("art", e.target.value as "wohn" | "nichtwohn")
-                  }
-                >
-                  <option value="wohn">Wohngebäude</option>
-                  <option value="nichtwohn">Nichtwohngebäude</option>
-                </select>
-              </Field>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="text-xs text-slate-500">Investitionskosten Wärmepumpe (aus Vergleich)</div>
-                <div className="text-lg font-semibold text-slate-900">{formatEuro(form.investHP, 0)}</div>
-                <div className="text-[11px] text-slate-500 mt-1">
-                  Sie ändern den Wert im Wizard-Schritt „Wärmepumpe“.
-                </div>
-              </div>
-
-              {foerderForm.art === "wohn" ? (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-slate-900">Wohngebäude-Optionen</div>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={foerderForm.wohnKlimaBonus}
-                      onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)}
-                    />
-                    Klima-Geschwindigkeitsbonus
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={foerderForm.wohnEinkommensBonus}
-                      onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)}
-                    />
-                    Einkommensbonus
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={foerderForm.wohnEffizienzBonus}
-                      onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)}
-                    />
-                    Effizienzbonus
-                  </label>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-slate-900">Nichtwohngebäude-Optionen</div>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={foerderForm.nwgEffizienzBonus}
-                      onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)}
-                    />
-                    Effizienzbonus
-                  </label>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={foerderLoading}
-                className="w-full px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
-              >
-                {foerderLoading ? "Berechnung läuft ..." : "Förderung berechnen"}
-              </button>
-
-              {foerderError && <div className="text-sm text-red-600">{foerderError}</div>}
-            </form>
-          </Section>
-
-          <Section title="Ergebnis & Übernahme" subtitle="Übernehmen Sie den Zuschuss direkt in den Wizard." tone="neutral">
-            {!foerderResult ? (
-              <div className="text-slate-600 text-sm">
-                Berechnen Sie rechts die Förderung. Danach können Sie den Zuschuss per Button übernehmen.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <div className="text-xs text-slate-500">Förderquote</div>
-                  <div className="text-xl font-semibold text-slate-900">
-                    {foerderResult.foerderProzent.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <div className="text-xs text-slate-500">Geschätzter Zuschuss</div>
-                  <div className="text-xl font-semibold text-slate-900">{formatEuro(foerderResult.foerderEuro, 0)}</div>
-
-                  <button
-                    type="button"
-                    className={
-                      "w-full mt-3 px-5 py-3 rounded-2xl text-sm font-semibold " +
-                      (subsidyApplied
-                        ? "bg-emerald-600 text-white"
-                        : "bg-slate-900 text-white hover:bg-slate-800")
-                    }
-                    onClick={() => {
-                      setForm((prev) => ({ ...prev, subsidyHP: Math.round(foerderResult.foerderEuro) }));
-                      setSubsidyApplied(true);
-                      // return to wizard at WP step for a clear flow
-                      setTab("vergleich");
-                      setWizardStep(3);
-                      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
-                    }}
-                  >
-                    {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss in Vergleich übernehmen"}
-                  </button>
-
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Springt zurück zum Wizard-Schritt „Wärmepumpe“ und trägt den Zuschuss ein.
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-xs text-slate-500">Verbleibende Investition nach Zuschuss</div>
-                  <div className="text-xl font-semibold text-slate-900">{formatEuro(foerderResult.restInvest, 0)}</div>
-                  <div className="mt-1 text-[11px] text-slate-500">Alle Angaben ohne Gewähr.</div>
-                </div>
-              </div>
-            )}
-          </Section>
-        </div>
-      )}
-
-      {/* Public Footer */}
       <div className="mt-10 text-xs text-slate-500 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>© {new Date().getFullYear()} Brüser Energieberatung · Dieses Tool ist eine Entscheidungshilfe.</div>
         <div className="flex gap-3">
