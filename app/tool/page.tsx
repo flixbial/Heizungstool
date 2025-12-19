@@ -128,26 +128,87 @@ function formatEuro(value: number, decimals = 0) {
   );
 }
 
+function formatCt(value: number, decimals = 1) {
+  return (
+    Number(value || 0).toLocaleString("de-DE", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }) + " ct/kWh"
+  );
+}
+
 function getPrintHint(role: Role) {
   if (role === "vermieter") {
     return {
-      title: "Bericht für Vermieter",
+      title: "Auswertung für Vermieter",
       text:
-        "Fokus auf Vermieterkosten (Investition, Wartung, Vermieteranteil CO₂) sowie Vorteil/Nachteil und Amortisation.",
+        "In dieser Perspektive betrachten wir Investition, Wartung und den Vermieteranteil der CO₂-Kosten. Energie zahlt typischerweise der Mieter.",
     };
   }
   if (role === "mieter") {
     return {
-      title: "Bericht für Mieter",
+      title: "Auswertung für Mieter",
       text:
-        "Fokus auf laufende Kosten (Energie + Mieteranteil CO₂). Investitionen werden in dieser Perspektive nicht bewertet.",
+        "In dieser Perspektive betrachten wir laufende Kosten (Energie + CO₂-Anteil). Investitionen werden hier nicht bewertet.",
     };
   }
   return {
-    title: "Bericht für Eigentümer (Selbstnutzer)",
+    title: "Auswertung für Eigentümer (Selbstnutzer)",
     text:
-      "Fokus auf Gesamtkosten inkl. Investition, Energie, Wartung und CO₂ sowie Vorteil/Nachteil und Amortisation.",
+      "In dieser Perspektive betrachten wir Gesamtkosten inkl. Investition, Energie, Wartung und CO₂ – und leiten daraus eine Entscheidung ab.",
   };
+}
+
+/** Premium UI helper */
+function Section({
+  title,
+  subtitle,
+  children,
+  tone = "neutral",
+}: {
+  title: string;
+  subtitle?: string;
+  tone?: "neutral" | "fossil" | "hp" | "result";
+  children: React.ReactNode;
+}) {
+  const toneClasses =
+    tone === "hp"
+      ? "border-blue-200/70 bg-blue-50/30"
+      : tone === "fossil"
+      ? "border-rose-200/70 bg-rose-50/30"
+      : tone === "result"
+      ? "border-slate-200 bg-white"
+      : "border-slate-200 bg-white";
+
+  return (
+    <div className={`rounded-2xl border ${toneClasses} shadow-sm`}>
+      <div className="px-5 pt-5 pb-3">
+        <div className="text-base font-semibold text-slate-900">{title}</div>
+        {subtitle ? <div className="mt-1 text-sm text-slate-600">{subtitle}</div> : null}
+      </div>
+      <div className="px-5 pb-5">{children}</div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <label className="block text-xs font-medium text-slate-700">{label}</label>
+        {hint ? <span className="text-[11px] text-slate-500">{hint}</span> : null}
+      </div>
+      <div className="mt-1">{children}</div>
+    </div>
+  );
 }
 
 // ===== Druckstabile SVG-Grafiken =====
@@ -193,7 +254,7 @@ function MiniCostChart({
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
-        Kumulierte Kosten (druckstabil)
+        Kumulierte Kosten im Zeitverlauf
       </div>
 
       <svg
@@ -220,6 +281,7 @@ function MiniCostChart({
         <line x1={pad} x2={w - pad} y1={h - pad} y2={h - pad} stroke="#e2e8f0" />
         <line x1={pad} x2={pad} y1={pad} y2={h - pad} stroke="#e2e8f0" />
 
+        {/* Fossil rot, WP blau (CI-konsistent) */}
         <path d={dF} fill="none" stroke="#ef4444" strokeWidth="3" />
         <path d={dH} fill="none" stroke="#2563eb" strokeWidth="3" />
 
@@ -274,7 +336,7 @@ function MiniTotalBarChart({
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
-        Gesamtkosten im Zeitraum (druckstabil)
+        Gesamtkosten im Zeitraum
       </div>
 
       <svg
@@ -290,25 +352,14 @@ function MiniTotalBarChart({
         <line x1={pad} x2={w - pad} y1={yBase} y2={yBase} stroke="#e2e8f0" />
         <line x1={pad} x2={pad} y1={pad} y2={yBase} stroke="#e2e8f0" />
 
+        {/* Fossil rot, WP blau (wie im Liniendiagramm) */}
         <rect x={x1} y={yBase - fH} width={barW} height={fH} fill="#ef4444" />
         <rect x={x2} y={yBase - hH} width={barW} height={hH} fill="#2563eb" />
 
-        <text
-          x={x1 + barW / 2}
-          y={yBase + 18}
-          fontSize="12"
-          fill="#334155"
-          textAnchor="middle"
-        >
+        <text x={x1 + barW / 2} y={yBase + 18} fontSize="12" fill="#334155" textAnchor="middle">
           {labelFossil}
         </text>
-        <text
-          x={x2 + barW / 2}
-          y={yBase + 18}
-          fontSize="12"
-          fill="#334155"
-          textAnchor="middle"
-        >
+        <text x={x2 + barW / 2} y={yBase + 18} fontSize="12" fill="#334155" textAnchor="middle">
           {labelHP}
         </text>
 
@@ -358,22 +409,10 @@ function PrintModal({
 }) {
   const totals =
     role === "vermieter"
-      ? {
-          fossil: result.totalLandlordFossil,
-          wp: result.totalLandlordHP,
-          savings: result.savingsLandlord,
-        }
+      ? { fossil: result.totalLandlordFossil, wp: result.totalLandlordHP, savings: result.savingsLandlord }
       : role === "mieter"
-      ? {
-          fossil: result.totalTenantFossil,
-          wp: result.totalTenantHP,
-          savings: result.savingsTenant,
-        }
-      : {
-          fossil: result.totalOwnerFossil,
-          wp: result.totalOwnerHP,
-          savings: result.savingsOwner,
-        };
+      ? { fossil: result.totalTenantFossil, wp: result.totalTenantHP, savings: result.savingsTenant }
+      : { fossil: result.totalOwnerFossil, wp: result.totalOwnerHP, savings: result.savingsOwner };
 
   const series =
     role === "vermieter"
@@ -384,7 +423,6 @@ function PrintModal({
 
   const narrativeInput: NarrativeInput = useMemo(() => {
     const years = form.years ?? 20;
-
     if (role === "vermieter") {
       return {
         years,
@@ -421,10 +459,7 @@ function PrintModal({
   }, [open, onClose]);
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
+  useEffect(() => setMounted(true), []);
   if (!open || !mounted) return null;
 
   const modal = (
@@ -437,7 +472,6 @@ function PrintModal({
               type="button"
               className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
               onClick={async () => {
-                // Optional: warten, bis das Logo geladen ist
                 const img = document.querySelector<HTMLImageElement>("#printArea img");
                 if (img && !img.complete) {
                   await new Promise<void>((resolve) => {
@@ -462,7 +496,6 @@ function PrintModal({
 
         <div id="printArea" className="report">
           <div className="report-header print-avoid-break">
-            {/* Stelle sicher: Datei liegt unter /public/logo.png (kleingeschrieben) */}
             <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
             <div className="report-head-right">
               <div className="report-title">Heizungs-Vergleich – Bericht</div>
@@ -481,7 +514,7 @@ function PrintModal({
             </div>
           </div>
 
-          {/* Narrative / Summary / Detail */}
+          {/* Narrative */}
           <div className="report-card print-avoid-break">
             <div className="report-h2">{narrative.headline}</div>
 
@@ -505,7 +538,7 @@ function PrintModal({
             </div>
           </div>
 
-          {/* KPIs (als Chunk: nicht zerreißen) */}
+          {/* KPIs */}
           <div className="print-chunk">
             <div className="report-kpis">
               <div className="report-card">
@@ -522,7 +555,7 @@ function PrintModal({
               </div>
               <div className="report-card">
                 <div className="report-muted" style={{ fontWeight: 700 }}>
-                  Vorteil/Nachteil WP
+                  Wirtschaftlicher Effekt
                 </div>
                 <div className="report-kpi">{formatEuro(totals.savings, 0)}</div>
                 <div className="report-muted">(positiv = Vorteil)</div>
@@ -530,7 +563,7 @@ function PrintModal({
             </div>
           </div>
 
-          {/* Druckstabile Grafiken (jeweils Chunk) */}
+          {/* Charts */}
           <div className="print-chunk">
             <MiniCostChart seriesFossil={series.fossil} seriesHP={series.hp} />
           </div>
@@ -538,7 +571,7 @@ function PrintModal({
             <MiniTotalBarChart fossil={totals.fossil} hp={totals.wp} />
           </div>
 
-          {/* Annahmen: optional auf neue Seite */}
+          {/* Assumptions on new page (2–3 pages target) */}
           <div className="report-section print-page-break">
             <div className="report-h3">Grundannahmen</div>
             <table className="report-table">
@@ -552,21 +585,23 @@ function PrintModal({
                   <td>{form.heatDemand} kWh/a</td>
                 </tr>
                 <tr>
-                  <th>Fläche / WE</th>
+                  <th>Fläche / Wohneinheiten</th>
                   <td>
                     {form.area} m² / {form.units} WE
                   </td>
                 </tr>
                 <tr>
-                  <th>Fossil</th>
+                  <th>Bestehende Heizung</th>
                   <td>
-                    {form.carrierFossil}, Preis {form.priceFossil0} ct/kWh, Steigerung {form.incFossil}%/a
+                    {form.carrierFossil}, Preis {formatCt(form.priceFossil0)} · Steigerung {form.incFossil}%/a · Wartung{" "}
+                    {formatEuro(form.maintFossil, 0)}/a
                   </td>
                 </tr>
                 <tr>
                   <th>Wärmepumpe</th>
                   <td>
-                    {form.carrierHP}, Preis {form.priceEl0} ct/kWh, Steigerung {form.incEl}%/a, JAZ {form.jaz}
+                    {form.carrierHP}, Preis {formatCt(form.priceEl0)} · Steigerung {form.incEl}%/a · JAZ {form.jaz} · Wartung{" "}
+                    {formatEuro(form.maintHP, 0)}/a
                   </td>
                 </tr>
                 <tr>
@@ -580,11 +615,10 @@ function PrintModal({
             </table>
 
             <div className="report-muted" style={{ marginTop: 10 }}>
-              Hinweis: Vereinfachtes Modell. Alle Angaben ohne Gewähr; maßgeblich sind aktuelle Richtlinien, Verträge und reale Anlagenwerte.
+              Hinweis: Vereinfachtes Modell. Alle Angaben ohne Gewähr; maßgeblich sind Angebote, reale Anlagenwerte und aktuelle Förderbedingungen.
             </div>
           </div>
 
-          {/* Print Footer */}
           <div className="report-footer">
             <span>Brüser Energieberatung · Heizungs-Vergleich</span>
             <span>{new Date().toLocaleDateString("de-DE")}</span>
@@ -599,7 +633,7 @@ function PrintModal({
 
 export default function ToolPage() {
   const [tab, setTab] = useState<"vergleich" | "foerder">("vergleich");
-  const [role, setRole] = useState<Role>("vermieter");
+  const [role, setRole] = useState<Role>("eigentuemer");
 
   const [form, setForm] = useState<FormState>({
     heatDemand: 30000,
@@ -683,7 +717,7 @@ export default function ToolPage() {
     try {
       const body = {
         ...foerderForm,
-        invest: form.investHP, // aus Heizungsvergleich
+        invest: form.investHP,
         area: form.area,
         units: form.units,
       };
@@ -721,7 +755,8 @@ export default function ToolPage() {
         annualKeyFossil: "landlordAnnualFossil" as const,
         annualKeyHP: "landlordAnnualHP" as const,
         cumSavingsKey: "landlordCumSavings" as const,
-        note: "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
+        note:
+          "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
       };
     }
 
@@ -737,7 +772,8 @@ export default function ToolPage() {
         annualKeyFossil: "tenantAnnualFossil" as const,
         annualKeyHP: "tenantAnnualHP" as const,
         cumSavingsKey: "tenantCumSavings" as const,
-        note: "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
+        note:
+          "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
       };
     }
 
@@ -752,7 +788,7 @@ export default function ToolPage() {
       annualKeyFossil: "ownerAnnualFossil" as const,
       annualKeyHP: "ownerAnnualHP" as const,
       cumSavingsKey: "ownerCumSavings" as const,
-      note: "Eigentümer (Selbstnutzer) trägt Investition, Energie, Wartung und 100% der CO₂-Kosten.",
+      note: "Eigentümer trägt Investition, Energie, Wartung und 100% der CO₂-Kosten.",
     };
   }, [result, role]);
 
@@ -776,8 +812,7 @@ export default function ToolPage() {
   const hint = getPrintHint(role);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 text-sm">
-      {/* Global Styles inkl. PRINT – einmalig */}
+    <div className="max-w-6xl mx-auto px-4 py-10 text-sm">
       <style jsx global>{`
         .print-modal-overlay {
           position: fixed;
@@ -890,7 +925,6 @@ export default function ToolPage() {
           font-weight: 800;
         }
 
-        /* Narrative blocks */
         .report-summary {
           margin-top: 10px;
           padding: 10px;
@@ -918,7 +952,6 @@ export default function ToolPage() {
           margin-top: 12px;
         }
 
-        /* PRINT: Alles ausblenden, außer Portal -> keine leeren Seiten */
         @media print {
           body > * {
             display: none !important;
@@ -953,19 +986,15 @@ export default function ToolPage() {
             print-color-adjust: exact;
           }
 
-          /* ===== Sprint 1 – Schritt 3: Print-Feinschliff ===== */
-
           @page {
             size: A4;
             margin: 12mm;
           }
 
-          /* Platz für Footer */
           #printArea {
             padding-bottom: 18mm !important;
           }
 
-          /* Keine zerrissenen Blöcke */
           .report-card,
           .report-kpis,
           .print-avoid-break,
@@ -974,30 +1003,25 @@ export default function ToolPage() {
             page-break-inside: avoid !important;
           }
 
-          /* Charts zusammenhalten */
           .print-chunk {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
 
-          /* Bewusster Seitenumbruch */
           .print-page-break {
             break-before: page !important;
             page-break-before: always !important;
           }
 
-          /* Header nicht zerreißen */
           .report-header {
             break-after: avoid !important;
             page-break-after: avoid !important;
           }
 
-          /* KPIs im Print als 1 Spalte (verhindert knappe Umbrüche) */
           .report-kpis {
             grid-template-columns: 1fr !important;
           }
 
-          /* Footer im Print */
           .report-footer {
             position: fixed;
             left: 12mm;
@@ -1015,511 +1039,619 @@ export default function ToolPage() {
         }
       `}</style>
 
-      <h1 className="text-2xl font-semibold mb-1">Heizungs-Vergleich &amp; Förderrechner</h1>
-      <p className="text-slate-600 mb-4">
-        Vergleich fossil vs. Wärmepumpe. Ergebnisse können je nach Rolle (Eigentümer/Vermieter/Mieter) unterschiedlich ausfallen.
-      </p>
-
-      {/* Rolle */}
-      <div className="bg-white border rounded-xl p-4 shadow-sm mb-6">
-        <label className="block text-xs font-medium text-slate-700 mb-1">
-          Deine Rolle / Zielgruppe
-        </label>
-        <select
-          className="w-full md:w-[360px] border rounded-lg px-2 py-1.5"
-          value={role}
-          onChange={(e) => setRole(e.target.value as Role)}
-        >
-          <option value="eigentuemer">Eigentümer (Selbstnutzer)</option>
-          <option value="vermieter">Vermieter</option>
-          <option value="mieter">Mieter</option>
-        </select>
-        <p className="text-[11px] text-slate-500 mt-2">
-          Hinweis: Vereinfachtes Modell (CO₂-Kosten werden anteilig verteilt; Energie typischerweise vom Mieter getragen).
-        </p>
+      {/* Premium Header */}
+      <div className="flex items-center justify-between gap-4 mb-8">
+        <div>
+          <div className="text-3xl font-semibold text-slate-900 leading-tight">
+            Heizungs-Vergleich
+          </div>
+          <div className="mt-2 text-slate-600 max-w-2xl">
+            Eine verständliche Wirtschaftlichkeits-Einschätzung für <b>Fossil</b> vs. <b>Wärmepumpe</b> – inkl. druckfähigem Bericht.
+          </div>
+        </div>
+        <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
+          <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          Public-Version (selbsterklärend)
+        </div>
       </div>
 
+      {/* Rolle */}
+      <Section
+        title="1) Ihre Situation"
+        subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile. So wird das Ergebnis realistischer."
+      >
+        <div className="grid md:grid-cols-2 gap-4">
+          <Field label="Rolle / Zielgruppe" hint="wirkt sich auf die Bewertung aus">
+            <select
+              className="w-full border rounded-xl px-3 py-2 bg-white"
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+            >
+              <option value="eigentuemer">Eigentümer (Selbstnutzer)</option>
+              <option value="vermieter">Vermieter</option>
+              <option value="mieter">Mieter</option>
+            </select>
+          </Field>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
+            <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
+            <div className="mt-2 text-[11px] text-slate-500">
+              Hinweis: vereinfachtes Modell. Ziel ist eine robuste, erklärbare Entscheidungshilfe.
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* Tabs */}
-      <div className="flex border-b mb-6 text-sm">
+      <div className="mt-8 flex items-center gap-2 border-b">
         <button
           className={
-            "px-4 py-2 border-b-2 -mb-px " +
+            "px-4 py-3 text-sm -mb-px border-b-2 " +
             (tab === "vergleich"
-              ? "border-blue-600 text-blue-600 font-medium"
+              ? "border-slate-900 text-slate-900 font-medium"
               : "border-transparent text-slate-500 hover:text-slate-800")
           }
           onClick={() => setTab("vergleich")}
         >
-          Heizungs-Vergleich
+          Wirtschaftlichkeit bewerten
         </button>
         <button
           className={
-            "px-4 py-2 border-b-2 -mb-px " +
+            "px-4 py-3 text-sm -mb-px border-b-2 " +
             (tab === "foerder"
-              ? "border-blue-600 text-blue-600 font-medium"
+              ? "border-slate-900 text-slate-900 font-medium"
               : "border-transparent text-slate-500 hover:text-slate-800")
           }
           onClick={() => setTab("foerder")}
         >
-          Förderrechner
+          Fördermöglichkeiten prüfen
         </button>
       </div>
 
       {tab === "vergleich" && (
         <>
-          <form onSubmit={handleCalc} className="grid gap-6 md:grid-cols-2 mb-8">
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Heizwärmebedarf / Energieverbrauch (kWh/a)
-                </label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.heatDemand}
-                  onChange={(e) => updateField("heatDemand", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700">Gebäudefläche (m²)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.area}
-                  onChange={(e) => updateField("area", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700">Wohneinheiten</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.units}
-                  onChange={(e) => updateField("units", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700">Betrachtungszeitraum (Jahre)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.years}
-                  onChange={(e) => updateField("years", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700">CO₂-Preisszenario</label>
-                <select
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.scenario}
-                  onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}
-                >
-                  <option>Sehr niedrig</option>
-                  <option>Niedrig</option>
-                  <option>Experten</option>
-                  <option>Hoch</option>
-                  <option>Sehr hoch</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700">Energiequelle fossile Heizung</label>
-                <select
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.carrierFossil}
-                  onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
-                >
-                  <option value="Erdgas">Erdgas</option>
-                  <option value="Flüssiggas">Flüssiggas</option>
-                  <option value="Heizöl">Heizöl</option>
-                  <option value="Pellets">Pellets</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Investitionskosten fossile Heizung (€, einmalig)
-                </label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.investFossil}
-                  onChange={(e) => updateField("investFossil", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700">Wirkungsgrad fossile Heizung (%)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.effFossil}
-                  onChange={(e) => updateField("effFossil", e.target.value)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700">Brennstoffpreis heute (ct/kWh)</label>
+          <form onSubmit={handleCalc} className="mt-6 grid gap-6">
+            <Section
+              title="2) Gebäude & Zeitraum"
+              subtitle="Diese Angaben bestimmen die Größenordnung der Kosten und die Vergleichbarkeit."
+            >
+              <div className="grid md:grid-cols-4 gap-4">
+                <Field label="Heizwärmebedarf (kWh/Jahr)" hint="z. B. aus Abrechnung">
                   <input
                     type="number"
-                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                    value={form.priceFossil0}
-                    onChange={(e) => updateField("priceFossil0", e.target.value)}
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.heatDemand}
+                    onChange={(e) => updateField("heatDemand", e.target.value)}
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700">Preissteigerung Brennstoff (%/a)</label>
+                </Field>
+
+                <Field label="Gebäudefläche (m²)" hint="beeinflusst CO₂/m²">
                   <input
                     type="number"
-                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                    value={form.incFossil}
-                    onChange={(e) => updateField("incFossil", e.target.value)}
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.area}
+                    onChange={(e) => updateField("area", e.target.value)}
                   />
-                </div>
+                </Field>
+
+                <Field label="Wohneinheiten" hint="für Förderannahmen">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.units}
+                    onChange={(e) => updateField("units", e.target.value)}
+                  />
+                </Field>
+
+                <Field label="Betrachtungszeitraum (Jahre)" hint="typisch: 15–25">
+                  <input
+                    type="number"
+                    className="w-full border rounded-xl px-3 py-2"
+                    value={form.years}
+                    onChange={(e) => updateField("years", e.target.value)}
+                  />
+                </Field>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten fossile Heizung (€/a)</label>
-                <input
-                  type="number"
-                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                  value={form.maintFossil}
-                  onChange={(e) => updateField("maintFossil", e.target.value)}
-                />
-              </div>
-
-              <div className="border-t pt-3 mt-2">
-                <h2 className="font-semibold text-xs mb-2">Wärmepumpe</h2>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">Stromquelle / Strommix</label>
+              <details className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                <summary className="cursor-pointer text-sm font-medium text-slate-800">
+                  Experteneinstellungen (CO₂-Preisszenario)
+                </summary>
+                <div className="mt-3 grid md:grid-cols-2 gap-4">
+                  <Field label="CO₂-Preisszenario" hint="wirkt auf CO₂-Kosten">
                     <select
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      value={form.scenario}
+                      onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}
+                    >
+                      <option>Sehr niedrig</option>
+                      <option>Niedrig</option>
+                      <option>Experten</option>
+                      <option>Hoch</option>
+                      <option>Sehr hoch</option>
+                    </select>
+                  </Field>
+                  <div className="text-xs text-slate-600 leading-relaxed">
+                    Wenn Sie unsicher sind: lassen Sie <b>„Experten“</b> stehen. Der Bericht zeigt die Annahmen transparent.
+                  </div>
+                </div>
+              </details>
+            </Section>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <Section
+                title="3) Bestehende Heizung (Referenz)"
+                subtitle="Damit vergleichen wir die Wärmepumpe. Je realistischer der Ausgangspunkt, desto besser das Ergebnis."
+                tone="fossil"
+              >
+                <div className="grid md:grid-cols-2 gap-4">
+                  <Field label="Energieträger" hint="Ausgangspunkt">
+                    <select
+                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      value={form.carrierFossil}
+                      onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
+                    >
+                      <option value="Erdgas">Erdgas</option>
+                      <option value="Flüssiggas">Flüssiggas</option>
+                      <option value="Heizöl">Heizöl</option>
+                      <option value="Pellets">Pellets</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Wirkungsgrad (%)" hint="typisch: 80–95">
+                    <input
+                      type="number"
+                      className="w-full border rounded-xl px-3 py-2"
+                      value={form.effFossil}
+                      onChange={(e) => updateField("effFossil", e.target.value)}
+                    />
+                  </Field>
+
+                  <Field label="Preis heute (ct/kWh)" hint="aus Rechnung">
+                    <input
+                      type="number"
+                      className="w-full border rounded-xl px-3 py-2"
+                      value={form.priceFossil0}
+                      onChange={(e) => updateField("priceFossil0", e.target.value)}
+                    />
+                  </Field>
+
+                  <Field label="Preissteigerung (%/a)" hint="z. B. 2–5">
+                    <input
+                      type="number"
+                      className="w-full border rounded-xl px-3 py-2"
+                      value={form.incFossil}
+                      onChange={(e) => updateField("incFossil", e.target.value)}
+                    />
+                  </Field>
+
+                  <Field label="Wartung/Fixkosten (€/a)" hint="Schornsteinfeger etc.">
+                    <input
+                      type="number"
+                      className="w-full border rounded-xl px-3 py-2"
+                      value={form.maintFossil}
+                      onChange={(e) => updateField("maintFossil", e.target.value)}
+                    />
+                  </Field>
+
+                  <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 md:col-span-2">
+                    <summary className="cursor-pointer text-sm font-medium text-slate-800">
+                      Investition (optional)
+                    </summary>
+                    <div className="mt-3 grid md:grid-cols-2 gap-4">
+                      <Field label="Investitionskosten fossil (€, einmalig)" hint="nur falls relevant">
+                        <input
+                          type="number"
+                          className="w-full border rounded-xl px-3 py-2"
+                          value={form.investFossil}
+                          onChange={(e) => updateField("investFossil", e.target.value)}
+                        />
+                      </Field>
+                      <div className="text-xs text-slate-600 leading-relaxed">
+                        Wenn die Anlage ohnehin erneuert werden muss, ist der Vergleich aussagekräftiger.
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </Section>
+
+              <Section
+                title="4) Wärmepumpe (Alternative)"
+                subtitle="Die Wirtschaftlichkeit hängt vor allem von JAZ, Strompreis und Förderung ab."
+                tone="hp"
+              >
+                <div className="grid md:grid-cols-2 gap-4">
+                  <Field label="Stromquelle" hint="Einfluss auf CO₂">
+                    <select
+                      className="w-full border rounded-xl px-3 py-2 bg-white"
                       value={form.carrierHP}
                       onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}
                     >
                       <option value="Strom Stromix">Strom Stromix</option>
                       <option value="Strom Erneuerbar">Strom Erneuerbar</option>
                     </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">JAZ (Jahresarbeitszahl)</label>
+                  </Field>
+
+                  <Field label="JAZ (Jahresarbeitszahl)" hint="typisch 2,5–4,0">
                     <input
                       type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      className="w-full border rounded-xl px-3 py-2"
                       value={form.jaz}
                       onChange={(e) => updateField("jaz", e.target.value)}
                     />
-                  </div>
-                </div>
+                  </Field>
 
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">Investitionskosten WP (brutto, €)</label>
+                  <Field label="Strompreis heute (ct/kWh)" hint="z. B. 25–40">
                     <input
                       type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.investHP}
-                      onChange={(e) => updateField("investHP", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">Förderung WP (Zuschuss, €)</label>
-                    <input
-                      type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                      value={form.subsidyHP}
-                      onChange={(e) => updateField("subsidyHP", e.target.value)}
-                    />
-                    <p className="text-[11px] text-slate-500 mt-1">Tipp: Im Förderrechner „Zuschuss übernehmen“ klicken.</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">Strompreis heute (ct/kWh)</label>
-                    <input
-                      type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      className="w-full border rounded-xl px-3 py-2"
                       value={form.priceEl0}
                       onChange={(e) => updateField("priceEl0", e.target.value)}
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">Preissteigerung Strom (%/a)</label>
+                  </Field>
+
+                  <Field label="Preissteigerung Strom (%/a)" hint="z. B. 1–3">
                     <input
                       type="number"
-                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      className="w-full border rounded-xl px-3 py-2"
                       value={form.incEl}
                       onChange={(e) => updateField("incEl", e.target.value)}
                     />
+                  </Field>
+
+                  <Field label="Investitionskosten WP (€, brutto)" hint="Angebot / Schätzung">
+                    <input
+                      type="number"
+                      className="w-full border rounded-xl px-3 py-2"
+                      value={form.investHP}
+                      onChange={(e) => updateField("investHP", e.target.value)}
+                    />
+                  </Field>
+
+                  <Field label="Förderung (€, Zuschuss)" hint="aus Förderrechner">
+                    <input
+                      type="number"
+                      className="w-full border rounded-xl px-3 py-2"
+                      value={form.subsidyHP}
+                      onChange={(e) => updateField("subsidyHP", e.target.value)}
+                    />
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Tipp: Im Tab „Fördermöglichkeiten prüfen“ berechnen und übernehmen.
+                    </div>
+                  </Field>
+
+                  <Field label="Wartung/Fixkosten (€/a)" hint="typisch geringer">
+                    <input
+                      type="number"
+                      className="w-full border rounded-xl px-3 py-2"
+                      value={form.maintHP}
+                      onChange={(e) => updateField("maintHP", e.target.value)}
+                    />
+                  </Field>
+
+                  <div className="md:col-span-2 rounded-xl border border-blue-200 bg-white px-4 py-3 text-xs text-slate-700">
+                    Wenn Sie unsicher sind: lassen Sie JAZ bei <b>3,0</b>. Im Bericht weisen wir darauf hin, dass reale Werte (Vorlauftemperatur, Heizflächen) entscheidend sind.
                   </div>
                 </div>
-
-                <div className="mt-2">
-                  <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten WP (€/a)</label>
-                  <input
-                    type="number"
-                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
-                    value={form.maintHP}
-                    onChange={(e) => updateField("maintHP", e.target.value)}
-                  />
-                </div>
-              </div>
+              </Section>
             </div>
 
-            <div className="md:col-span-2 flex justify-end mt-2">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="text-xs text-slate-600">
+                Öffentlich nutzbar: Bitte nur Werte eingeben, die Sie teilen möchten. Es werden keine personenbezogenen Daten benötigt.
+              </div>
+
               <button
                 type="submit"
                 disabled={loading}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
+                className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
               >
-                {loading ? "Berechne ..." : "Berechnen"}
+                {loading ? "Bewertung läuft ..." : "Wirtschaftlichkeit bewerten"}
               </button>
             </div>
           </form>
 
-          {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
+          {error && <div className="mt-5 text-sm text-red-600">{error}</div>}
 
           {result && perspective && (
-            <section className="space-y-6">
-              <div className="bg-white border rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold">{hint.title}</div>
-                  <div className="text-xs text-slate-600 mt-1">{hint.text}</div>
-                </div>
-
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-                  onClick={() => setShowPrint(true)}
-                >
-                  Bericht drucken
-                </button>
-              </div>
-
-              <div className="bg-white border rounded-xl p-4 shadow-sm text-[11px] text-slate-600">
-                <span className="font-medium">{perspective.label}:</span> {perspective.note}
-              </div>
-
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500">Mehrinvestition WP (netto)</div>
-                  <div className="text-lg font-semibold">{formatEuro(result.extraInvest, 0)}</div>
-                </div>
-
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500">Amortisation ({perspective.label})</div>
-                  <div className="text-lg font-semibold">
-                    {result.extraInvest <= 0
-                      ? "Keine Mehrinvestition"
-                      : perspective.payback
-                      ? `${perspective.payback}. Jahr`
-                      : "Keine vollständige Amortisation"}
+            <div className="mt-8 grid gap-6">
+              <Section
+                title="5) Ihre Entscheidung"
+                subtitle="Das Ergebnis ist so formuliert, dass es auch ohne Beratung verständlich bleibt – inkl. Bericht."
+                tone="result"
+              >
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
+                  <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    {perspective.label}: {perspective.note}
                   </div>
                 </div>
 
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                  <div className="text-xs text-slate-500">Vorteil/Nachteil ({perspective.label})</div>
-                  <div
-                    className={
-                      "text-lg font-semibold " +
-                      (perspective.savings > 0 ? "text-emerald-700" : perspective.savings < 0 ? "text-red-700" : "")
-                    }
+                <div className="mt-4 grid md:grid-cols-3 gap-4">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs text-slate-500">Mehrinvestition Wärmepumpe (netto)</div>
+                    <div className="text-xl font-semibold text-slate-900 mt-1">
+                      {formatEuro(result.extraInvest, 0)}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Netto = WP Invest minus Förderung (vereinfacht)
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs text-slate-500">Amortisation ({perspective.label})</div>
+                    <div className="text-xl font-semibold text-slate-900 mt-1">
+                      {result.extraInvest <= 0
+                        ? "Keine Mehrinvestition"
+                        : perspective.payback
+                        ? `${perspective.payback}. Jahr`
+                        : "Keine vollständige Amortisation"}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Falls keine Amortisation: Ergebnis mit anderen Annahmen prüfen.
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs text-slate-500">Wirtschaftlicher Effekt ({perspective.label})</div>
+                    <div
+                      className={
+                        "text-xl font-semibold mt-1 " +
+                        (perspective.savings > 0
+                          ? "text-emerald-700"
+                          : perspective.savings < 0
+                          ? "text-rose-700"
+                          : "text-slate-900")
+                      }
+                    >
+                      {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
+                        formatEuro(Math.abs(perspective.savings), 0)}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Positiv bedeutet: WP ist im Zeitraum günstiger.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div className="text-sm text-slate-700">
+                    <b>Tipp:</b> Erstellen Sie den Bericht direkt nach der Berechnung.
+                  </div>
+                  <button
+                    type="button"
+                    className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm font-semibold hover:bg-slate-50"
+                    onClick={() => setShowPrint(true)}
                   >
-                    {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
-                      formatEuro(Math.abs(perspective.savings), 0)}
+                    Bericht erstellen & drucken
+                  </button>
+                </div>
+              </Section>
+
+              {/* Interaktive Charts (Screen) */}
+              <Section title="Verlauf & Vergleich" subtitle="Zur schnellen Einordnung – im Bericht sind die Grafiken druckstabil." tone="result">
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs text-slate-500 mb-2">
+                      Kumulierte Kosten ({perspective.label})
+                    </div>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={chartData}
+                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                        >
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
+                          <Line type="monotone" dataKey="kumFossil" name="kumuliert fossil" stroke="#ef4444" dot={false} />
+                          <Line type="monotone" dataKey="kumHP" name="kumuliert Wärmepumpe" stroke="#2563eb" dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs text-slate-500 mb-2">Gesamtkosten ({perspective.label})</div>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={totalChartData}
+                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                        >
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
+                          <Bar dataKey="kosten" name="Gesamtkosten">
+                            {totalChartData.map((entry, index) => (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={entry.name === "Fossil" ? "#ef4444" : "#2563eb"}
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="bg-white border rounded-xl p-4 shadow-sm">
-                <div className="text-xs text-slate-500 mb-2">
-                  Kumulierte Kosten ({perspective.label}) – fossil vs. Wärmepumpe
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                      <Line type="monotone" dataKey="kumFossil" name="kumuliert fossil" stroke="#ef4444" dot={false} />
-                      <Line type="monotone" dataKey="kumHP" name="kumuliert Wärmepumpe" stroke="#2563eb" dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="bg-white border rounded-xl p-4 shadow-sm">
-                <div className="text-xs text-slate-500 mb-2">Gesamtkosten ({perspective.label})</div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={totalChartData}>
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
-                      <Bar dataKey="kosten" name="Gesamtkosten">
-                        {totalChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.name === "Fossil" ? "#ef4444" : "#2563eb"} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="bg-white border rounded-xl p-4 shadow-sm overflow-x-auto">
-                <div className="text-xs text-slate-500 mb-2">Jährliche Übersicht ({perspective.label})</div>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-1 pr-2">Jahr</th>
-                      <th className="text-right py-1 px-2">CO₂-Preis</th>
-                      <th className="text-right py-1 px-2">Kosten fossil</th>
-                      <th className="text-right py-1 px-2">Kosten WP</th>
-                      <th className="text-right py-1 px-2">kumulierte Einsparung</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.rows.map((row) => {
-                      const annualF = (row as any)[perspective.annualKeyFossil] as number;
-                      const annualH = (row as any)[perspective.annualKeyHP] as number;
-                      const cumS = (row as any)[perspective.cumSavingsKey] as number;
-
-                      return (
-                        <tr key={row.year} className="border-b">
-                          <td className="py-1 pr-2">{row.year}</td>
-                          <td className="py-1 px-2 text-right">
-                            {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
-                          </td>
-                          <td className="py-1 px-2 text-right">{formatEuro(annualF, 0)}</td>
-                          <td className="py-1 px-2 text-right">{formatEuro(annualH, 0)}</td>
-                          <td className="py-1 px-2 text-right">{formatEuro(cumS, 0)}</td>
+                <details className="mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+                    Details (jährliche Übersicht)
+                  </summary>
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 pr-2">Jahr</th>
+                          <th className="text-right py-2 px-2">CO₂-Preis</th>
+                          <th className="text-right py-2 px-2">Kosten fossil</th>
+                          <th className="text-right py-2 px-2">Kosten WP</th>
+                          <th className="text-right py-2 px-2">kumulierte Einsparung</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody>
+                        {result.rows.map((row) => {
+                          const annualF = (row as any)[
+                            role === "vermieter"
+                              ? "landlordAnnualFossil"
+                              : role === "mieter"
+                              ? "tenantAnnualFossil"
+                              : "ownerAnnualFossil"
+                          ] as number;
+
+                          const annualH = (row as any)[
+                            role === "vermieter"
+                              ? "landlordAnnualHP"
+                              : role === "mieter"
+                              ? "tenantAnnualHP"
+                              : "ownerAnnualHP"
+                          ] as number;
+
+                          const cumS = (row as any)[
+                            role === "vermieter"
+                              ? "landlordCumSavings"
+                              : role === "mieter"
+                              ? "tenantCumSavings"
+                              : "ownerCumSavings"
+                          ] as number;
+
+                          return (
+                            <tr key={row.year} className="border-b">
+                              <td className="py-2 pr-2">{row.year}</td>
+                              <td className="py-2 px-2 text-right">
+                                {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
+                              </td>
+                              <td className="py-2 px-2 text-right">{formatEuro(annualF, 0)}</td>
+                              <td className="py-2 px-2 text-right">{formatEuro(annualH, 0)}</td>
+                              <td className="py-2 px-2 text-right">{formatEuro(cumS, 0)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              </Section>
 
               <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
-            </section>
+            </div>
           )}
         </>
       )}
 
       {tab === "foerder" && (
-        <section className="grid md:grid-cols-2 gap-6">
-          <form onSubmit={handleFoerderCalc} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Gebäudeart</label>
-              <select
-                className="w-full border rounded-lg px-2 py-1.5"
-                value={foerderForm.art}
-                onChange={(e) => updateFoerderField("art", e.target.value as "wohn" | "nichtwohn")}
+        <div className="mt-6 grid md:grid-cols-2 gap-6">
+          <Section
+            title="Förderung berechnen"
+            subtitle="Vereinfachte Auswahl. Ziel ist eine belastbare Größenordnung – nicht die rechtliche Bewertung."
+            tone="neutral"
+          >
+            <form onSubmit={handleFoerderCalc} className="space-y-4">
+              <Field label="Gebäudeart">
+                <select
+                  className="w-full border rounded-xl px-3 py-2 bg-white"
+                  value={foerderForm.art}
+                  onChange={(e) =>
+                    updateFoerderField("art", e.target.value as "wohn" | "nichtwohn")
+                  }
+                >
+                  <option value="wohn">Wohngebäude</option>
+                  <option value="nichtwohn">Nichtwohngebäude</option>
+                </select>
+              </Field>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="text-xs text-slate-500">Investitionskosten Wärmepumpe (aus Vergleich)</div>
+                <div className="text-lg font-semibold text-slate-900">{formatEuro(form.investHP, 0)}</div>
+                <div className="text-[11px] text-slate-500 mt-1">Sie ändern den Wert im Tab „Wirtschaftlichkeit bewerten“.</div>
+              </div>
+
+              {foerderForm.art === "wohn" ? (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-slate-900">Wohngebäude-Optionen</div>
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={foerderForm.wohnKlimaBonus}
+                      onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)}
+                    />
+                    Klima-Geschwindigkeitsbonus
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={foerderForm.wohnEinkommensBonus}
+                      onChange={(e) =>
+                        updateFoerderField("wohnEinkommensBonus", e.target.checked)
+                      }
+                    />
+                    Einkommensbonus
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={foerderForm.wohnEffizienzBonus}
+                      onChange={(e) =>
+                        updateFoerderField("wohnEffizienzBonus", e.target.checked)
+                      }
+                    />
+                    Effizienzbonus
+                  </label>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-slate-900">Nichtwohngebäude-Optionen</div>
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={foerderForm.nwgEffizienzBonus}
+                      onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)}
+                    />
+                    Effizienzbonus
+                  </label>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={foerderLoading}
+                className="w-full px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-60 hover:bg-slate-800"
               >
-                <option value="wohn">Wohngebäude</option>
-                <option value="nichtwohn">Nichtwohngebäude</option>
-              </select>
-            </div>
+                {foerderLoading ? "Berechnung läuft ..." : "Förderung berechnen"}
+              </button>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Investitionskosten Wärmepumpe (brutto, €)
-              </label>
-              <input
-                type="number"
-                className="w-full border rounded-lg px-2 py-1.5 bg-slate-50"
-                value={form.investHP}
-                readOnly
-              />
-              <p className="text-[11px] text-slate-500 mt-1">Kommt aus dem Heizungsrechner.</p>
-            </div>
+              {foerderError && <div className="text-sm text-red-600">{foerderError}</div>}
+            </form>
+          </Section>
 
-            {foerderForm.art === "wohn" ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-slate-700">Wohngebäude-Optionen (vereinfacht)</p>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnKlimaBonus}
-                    onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)}
-                  />
-                  Klima-Geschwindigkeitsbonus
-                </label>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnEinkommensBonus}
-                    onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)}
-                  />
-                  Einkommensbonus
-                </label>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.wohnEffizienzBonus}
-                    onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)}
-                  />
-                  Effizienzbonus
-                </label>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-slate-700">Nichtwohngebäude-Optionen (vereinfacht)</p>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={foerderForm.nwgEffizienzBonus}
-                    onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)}
-                  />
-                  Effizienzbonus
-                </label>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={foerderLoading}
-              className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
-            >
-              {foerderLoading ? "Berechne Förderung ..." : "Förderung berechnen"}
-            </button>
-
-            {foerderError && <p className="text-xs text-red-600 mt-2">{foerderError}</p>}
-          </form>
-
-          <div className="bg-white border rounded-xl p-4 shadow-sm text-sm">
+          <Section title="Ergebnis & Übernahme" subtitle="Übernehmen Sie den Zuschuss direkt in den Vergleich." tone="neutral">
             {!foerderResult ? (
-              <p className="text-slate-600">
-                Nach der Berechnung kannst du den Zuschuss per Button in den Heizungsrechner übernehmen.
-              </p>
+              <div className="text-slate-600 text-sm">
+                Berechnen Sie rechts die Förderung. Danach können Sie den Zuschuss per Button übernehmen.
+              </div>
             ) : (
-              <div className="space-y-3">
-                <div>
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                   <div className="text-xs text-slate-500">Förderquote</div>
-                  <div className="text-lg font-semibold">
+                  <div className="text-xl font-semibold text-slate-900">
                     {foerderResult.foerderProzent.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %
                   </div>
                 </div>
 
-                <div>
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                   <div className="text-xs text-slate-500">Geschätzter Zuschuss</div>
-                  <div className="text-lg font-semibold">{formatEuro(foerderResult.foerderEuro, 0)}</div>
+                  <div className="text-xl font-semibold text-slate-900">{formatEuro(foerderResult.foerderEuro, 0)}</div>
 
                   <button
                     type="button"
                     className={
-                      "w-full mt-2 px-4 py-2 rounded-lg text-sm font-medium " +
-                      (subsidyApplied ? "bg-emerald-600 text-white" : "bg-blue-600 text-white hover:bg-blue-700")
+                      "w-full mt-3 px-5 py-3 rounded-2xl text-sm font-semibold " +
+                      (subsidyApplied
+                        ? "bg-emerald-600 text-white"
+                        : "bg-slate-900 text-white hover:bg-slate-800")
                     }
                     onClick={() => {
                       setForm((prev) => ({ ...prev, subsidyHP: Math.round(foerderResult.foerderEuro) }));
@@ -1527,25 +1659,33 @@ export default function ToolPage() {
                       setTab("vergleich");
                     }}
                   >
-                    {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss übernehmen"}
+                    {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss in Vergleich übernehmen"}
                   </button>
 
-                  <p className="text-[11px] text-slate-500 mt-2">
-                    Übernimmt den Zuschuss in „Förderung WP (Zuschuss, €)“ und springt zurück.
-                  </p>
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Springt automatisch zurück zum Vergleich und trägt den Zuschuss ein.
+                  </div>
                 </div>
 
-                <div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <div className="text-xs text-slate-500">Verbleibende Investition nach Zuschuss</div>
-                  <div className="text-lg font-semibold">{formatEuro(foerderResult.restInvest, 0)}</div>
+                  <div className="text-xl font-semibold text-slate-900">{formatEuro(foerderResult.restInvest, 0)}</div>
+                  <div className="mt-1 text-[11px] text-slate-500">Alle Angaben ohne Gewähr.</div>
                 </div>
-
-                <p className="text-[11px] text-slate-500">Alle Angaben ohne Gewähr.</p>
               </div>
             )}
-          </div>
-        </section>
+          </Section>
+        </div>
       )}
+
+      {/* Public Footer */}
+      <div className="mt-10 text-xs text-slate-500 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div>© {new Date().getFullYear()} Brüser Energieberatung · Dieses Tool ist eine Entscheidungshilfe.</div>
+        <div className="flex gap-3">
+          <span className="underline underline-offset-4 cursor-pointer">Impressum</span>
+          <span className="underline underline-offset-4 cursor-pointer">Datenschutz</span>
+        </div>
+      </div>
     </div>
   );
 }
