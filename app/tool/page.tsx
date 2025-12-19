@@ -281,7 +281,6 @@ function MiniCostChart({
         <line x1={pad} x2={w - pad} y1={h - pad} y2={h - pad} stroke="#e2e8f0" />
         <line x1={pad} x2={pad} y1={pad} y2={h - pad} stroke="#e2e8f0" />
 
-        {/* Fossil rot, WP blau (CI-konsistent) */}
         <path d={dF} fill="none" stroke="#ef4444" strokeWidth="3" />
         <path d={dH} fill="none" stroke="#2563eb" strokeWidth="3" />
 
@@ -352,7 +351,6 @@ function MiniTotalBarChart({
         <line x1={pad} x2={w - pad} y1={yBase} y2={yBase} stroke="#e2e8f0" />
         <line x1={pad} x2={pad} y1={pad} y2={yBase} stroke="#e2e8f0" />
 
-        {/* Fossil rot, WP blau (wie im Liniendiagramm) */}
         <rect x={x1} y={yBase - fH} width={barW} height={fH} fill="#ef4444" />
         <rect x={x2} y={yBase - hH} width={barW} height={hH} fill="#2563eb" />
 
@@ -514,7 +512,6 @@ function PrintModal({
             </div>
           </div>
 
-          {/* Narrative */}
           <div className="report-card print-avoid-break">
             <div className="report-h2">{narrative.headline}</div>
 
@@ -538,7 +535,6 @@ function PrintModal({
             </div>
           </div>
 
-          {/* KPIs */}
           <div className="print-chunk">
             <div className="report-kpis">
               <div className="report-card">
@@ -563,7 +559,6 @@ function PrintModal({
             </div>
           </div>
 
-          {/* Charts */}
           <div className="print-chunk">
             <MiniCostChart seriesFossil={series.fossil} seriesHP={series.hp} />
           </div>
@@ -571,7 +566,6 @@ function PrintModal({
             <MiniTotalBarChart fossil={totals.fossil} hp={totals.wp} />
           </div>
 
-          {/* Assumptions on new page (2–3 pages target) */}
           <div className="report-section print-page-break">
             <div className="report-h3">Grundannahmen</div>
             <table className="report-table">
@@ -658,6 +652,91 @@ export default function ToolPage() {
     maintHP: 600,
   });
 
+  // ===== Sprint 3.1 Step 2: Quick-Start Presets =====
+  type PresetKey = "efh" | "mfh" | "gewerbe";
+  const PRESETS: Record<
+    PresetKey,
+    { title: string; subtitle: string; roleHint?: Role; patch: Partial<FormState> }
+  > = {
+    efh: {
+      title: "Einfamilienhaus",
+      subtitle: "schneller Start mit plausiblen Standardwerten",
+      roleHint: "eigentuemer",
+      patch: {
+        heatDemand: 18000,
+        area: 140,
+        units: 1,
+        years: 20,
+        scenario: "Experten",
+        carrierFossil: "Erdgas",
+        carrierHP: "Strom Stromix",
+        investFossil: 12000,
+        effFossil: 90,
+        priceFossil0: 11,
+        incFossil: 3,
+        maintFossil: 450,
+        investHP: 38000,
+        subsidyHP: 9000,
+        jaz: 3.2,
+        priceEl0: 32,
+        incEl: 2,
+        maintHP: 300,
+      },
+    },
+    mfh: {
+      title: "Mehrfamilienhaus",
+      subtitle: "typisch Vermieter-Perspektive, mehrere WE",
+      roleHint: "vermieter",
+      patch: {
+        heatDemand: 65000,
+        area: 700,
+        units: 8,
+        years: 20,
+        scenario: "Experten",
+        carrierFossil: "Heizöl",
+        carrierHP: "Strom Stromix",
+        investFossil: 30000,
+        effFossil: 88,
+        priceFossil0: 10,
+        incFossil: 3,
+        maintFossil: 1200,
+        investHP: 85000,
+        subsidyHP: 22000,
+        jaz: 3.0,
+        priceEl0: 30,
+        incEl: 2,
+        maintHP: 900,
+      },
+    },
+    gewerbe: {
+      title: "Gewerbe/Objekt",
+      subtitle: "größere Verbräuche – Startwerte zur Orientierung",
+      roleHint: "eigentuemer",
+      patch: {
+        heatDemand: 120000,
+        area: 1500,
+        units: 1,
+        years: 20,
+        scenario: "Experten",
+        carrierFossil: "Erdgas",
+        carrierHP: "Strom Stromix",
+        investFossil: 50000,
+        effFossil: 92,
+        priceFossil0: 9,
+        incFossil: 3,
+        maintFossil: 2500,
+        investHP: 160000,
+        subsidyHP: 35000,
+        jaz: 3.1,
+        priceEl0: 28,
+        incEl: 2,
+        maintHP: 1800,
+      },
+    },
+  };
+
+  const [activePreset, setActivePreset] = useState<PresetKey | null>(null);
+
   const [foerderForm, setFoerderForm] = useState<FoerderForm>({
     art: "wohn",
     wohnKlimaBonus: false,
@@ -677,7 +756,19 @@ export default function ToolPage() {
   const [subsidyApplied, setSubsidyApplied] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
 
+  function applyPreset(key: PresetKey) {
+    const preset = PRESETS[key];
+    setForm((prev) => ({ ...prev, ...preset.patch }));
+    if (preset.roleHint) setRole(preset.roleHint);
+    setActivePreset(key);
+
+    // Public-friendly: Ergebnis zurücksetzen (damit klar ist, dass neu bewertet werden muss)
+    setResult(null);
+    setError(null);
+  }
+
   function updateField<K extends keyof FormState>(key: K, value: string) {
+    setActivePreset(null); // sobald der Nutzer editiert, ist es "custom"
     setForm((prev) => ({
       ...prev,
       [key]: typeof prev[key] === "number" ? Number(value.replace(",", ".")) : (value as any),
@@ -755,8 +846,7 @@ export default function ToolPage() {
         annualKeyFossil: "landlordAnnualFossil" as const,
         annualKeyHP: "landlordAnnualHP" as const,
         cumSavingsKey: "landlordCumSavings" as const,
-        note:
-          "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
+        note: "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
       };
     }
 
@@ -772,8 +862,7 @@ export default function ToolPage() {
         annualKeyFossil: "tenantAnnualFossil" as const,
         annualKeyHP: "tenantAnnualHP" as const,
         cumSavingsKey: "tenantCumSavings" as const,
-        note:
-          "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
+        note: "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
       };
     }
 
@@ -1039,7 +1128,6 @@ export default function ToolPage() {
         }
       `}</style>
 
-      {/* Premium Header */}
       <div className="flex items-center justify-between gap-4 mb-8">
         <div>
           <div className="text-3xl font-semibold text-slate-900 leading-tight">
@@ -1055,7 +1143,6 @@ export default function ToolPage() {
         </div>
       </div>
 
-      {/* Rolle */}
       <Section
         title="1) Ihre Situation"
         subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile. So wird das Ergebnis realistischer."
@@ -1083,7 +1170,6 @@ export default function ToolPage() {
         </div>
       </Section>
 
-      {/* Tabs */}
       <div className="mt-8 flex items-center gap-2 border-b">
         <button
           className={
@@ -1112,6 +1198,65 @@ export default function ToolPage() {
       {tab === "vergleich" && (
         <>
           <form onSubmit={handleCalc} className="mt-6 grid gap-6">
+            {/* ===== NEW: Quick-Start Presets ===== */}
+            <Section
+              title="Quick-Start"
+              subtitle="Wählen Sie eine typische Ausgangslage. Danach können Sie die Werte feinjustieren."
+              tone="neutral"
+            >
+              <div className="grid md:grid-cols-3 gap-3">
+                {(["efh", "mfh", "gewerbe"] as PresetKey[]).map((k) => {
+                  const p = PRESETS[k];
+                  const active = activePreset === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => applyPreset(k)}
+                      className={
+                        "text-left rounded-2xl border px-4 py-4 transition " +
+                        (active
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200 bg-white hover:bg-slate-50")
+                      }
+                    >
+                      <div className={"text-sm font-semibold " + (active ? "text-white" : "text-slate-900")}>
+                        {p.title}
+                      </div>
+                      <div className={"mt-1 text-xs " + (active ? "text-slate-200" : "text-slate-600")}>
+                        {p.subtitle}
+                      </div>
+                      <div className={"mt-3 text-[11px] " + (active ? "text-slate-300" : "text-slate-500")}>
+                        {k === "efh"
+                          ? `~ ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a · JAZ ${p.patch.jaz}`
+                          : k === "mfh"
+                          ? `~ ${p.patch.units} WE · ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a`
+                          : `~ ${p.patch.area} m² · ${p.patch.heatDemand} kWh/a · Invest WP ${formatEuro(
+                              Number(p.patch.investHP || 0),
+                              0
+                            )}`}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+                {activePreset ? (
+                  <>
+                    <b>Preset aktiv:</b> {PRESETS[activePreset].title}.{" "}
+                    <span className="text-slate-600">
+                      Sie können jetzt jede Zahl anpassen (danach ist es „Custom“).
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <b>Tipp:</b> Presets erleichtern den Einstieg. Wenn Sie bereits konkrete Rechnungen/Angebote haben, tragen Sie diese direkt ein.
+                  </>
+                )}
+              </div>
+            </Section>
+
             <Section
               title="2) Gebäude & Zeitraum"
               subtitle="Diese Angaben bestimmen die Größenordnung der Kosten und die Vergleichbarkeit."
@@ -1429,8 +1574,11 @@ export default function ToolPage() {
                 </div>
               </Section>
 
-              {/* Interaktive Charts (Screen) */}
-              <Section title="Verlauf & Vergleich" subtitle="Zur schnellen Einordnung – im Bericht sind die Grafiken druckstabil." tone="result">
+              <Section
+                title="Verlauf & Vergleich"
+                subtitle="Zur schnellen Einordnung – im Bericht sind die Grafiken druckstabil."
+                tone="result"
+              >
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="text-xs text-slate-500 mb-2">
@@ -1438,10 +1586,7 @@ export default function ToolPage() {
                     </div>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart
-                          data={chartData}
-                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
-                        >
+                        <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                           <XAxis dataKey="name" />
                           <YAxis />
                           <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
@@ -1456,10 +1601,7 @@ export default function ToolPage() {
                     <div className="text-xs text-slate-500 mb-2">Gesamtkosten ({perspective.label})</div>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={totalChartData}
-                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
-                        >
+                        <BarChart data={totalChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                           <XAxis dataKey="name" />
                           <YAxis />
                           <Tooltip formatter={(v: any) => formatEuro(Number(v), 0)} />
@@ -1584,9 +1726,7 @@ export default function ToolPage() {
                     <input
                       type="checkbox"
                       checked={foerderForm.wohnEinkommensBonus}
-                      onChange={(e) =>
-                        updateFoerderField("wohnEinkommensBonus", e.target.checked)
-                      }
+                      onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)}
                     />
                     Einkommensbonus
                   </label>
@@ -1594,9 +1734,7 @@ export default function ToolPage() {
                     <input
                       type="checkbox"
                       checked={foerderForm.wohnEffizienzBonus}
-                      onChange={(e) =>
-                        updateFoerderField("wohnEffizienzBonus", e.target.checked)
-                      }
+                      onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)}
                     />
                     Effizienzbonus
                   </label>
@@ -1678,7 +1816,6 @@ export default function ToolPage() {
         </div>
       )}
 
-      {/* Public Footer */}
       <div className="mt-10 text-xs text-slate-500 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>© {new Date().getFullYear()} Brüser Energieberatung · Dieses Tool ist eine Entscheidungshilfe.</div>
         <div className="flex gap-3">
