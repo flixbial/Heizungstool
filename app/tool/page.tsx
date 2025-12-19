@@ -14,6 +14,9 @@ import {
   Cell,
 } from "recharts";
 
+import { getNarrative } from "@/lib/narratives";
+import type { NarrativeInput } from "@/lib/narratives/types";
+
 type ScenarioName = "Sehr niedrig" | "Niedrig" | "Experten" | "Hoch" | "Sehr hoch";
 type CarrierFossil = "Erdgas" | "Flüssiggas" | "Heizöl" | "Pellets";
 type CarrierHP = "Strom Stromix" | "Strom Erneuerbar";
@@ -147,104 +150,6 @@ function getPrintHint(role: Role) {
   };
 }
 
-// ✅ leicht erweiterbare Textlogik
-function getNarrative(role: Role, form: FormState, result: CalcResult) {
-  const years = form.years ?? 20;
-
-  const pick = () => {
-    if (role === "vermieter")
-      return {
-        label: "Vermieter",
-        savings: result.savingsLandlord,
-        payback: result.paybackLandlord,
-        totalFossil: result.totalLandlordFossil,
-      };
-    if (role === "mieter")
-      return {
-        label: "Mieter",
-        savings: result.savingsTenant,
-        payback: null,
-        totalFossil: result.totalTenantFossil,
-      };
-    return {
-      label: "Eigentümer (Selbstnutzer)",
-      savings: result.savingsOwner,
-      payback: result.paybackOwner,
-      totalFossil: result.totalOwnerFossil,
-    };
-  };
-
-  const p = pick();
-  const abs = Math.abs(p.savings || 0);
-  const monatlich = abs / (years * 12);
-  const isAdvantage = (p.savings ?? 0) > 0;
-  const isNear = abs < 0.03 * Math.max(1, Number(p.totalFossil || 1));
-
-  const headline =
-    isNear
-      ? "Ergebnis nahe am Break-even"
-      : isAdvantage
-      ? "Wärmepumpe wirtschaftlich vorteilhaft"
-      : "Wärmepumpe derzeit wirtschaftlich nachteilig";
-
-  const introByRole: Record<Role, string> = {
-    vermieter: isNear
-      ? `Aus Vermietersicht liegt das Ergebnis nahe am Break-even. Kleine Änderungen bei Förderung, Investition oder CO₂-Preisen können das Ergebnis drehen.`
-      : isAdvantage
-      ? `Aus Vermietersicht ist die Wärmepumpe vorteilhaft: über ${years} Jahre ergibt sich ein Vorteil von ${formatEuro(abs)}.`
-      : `Aus Vermietersicht ist die Wärmepumpe im Szenario nachteilig: über ${years} Jahre ergibt sich ein Nachteil von ${formatEuro(abs)}.`,
-    mieter: isNear
-      ? `Aus Mietersicht liegen die laufenden Kosten nahe beieinander. Das Ergebnis hängt stark an Strompreis, Brennstoffpreis und realer JAZ.`
-      : isAdvantage
-      ? `Als Mieter*in sinken die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`
-      : `Als Mieter*in steigen die laufenden Kosten über ${years} Jahre um ${formatEuro(abs)} (≈ ${formatEuro(monatlich, 0)} / Monat).`,
-    eigentuemer: isNear
-      ? `Als Selbstnutzer liegt das Ergebnis nahe am Break-even. Schon kleine Änderungen bei JAZ, Strompreis oder Förderung können die Bewertung umkehren.`
-      : isAdvantage
-      ? `Als Selbstnutzer sparen Sie über ${years} Jahre voraussichtlich ${formatEuro(abs)}.`
-      : `Als Selbstnutzer entsteht über ${years} Jahre voraussichtlich ein Nachteil von ${formatEuro(abs)}.`,
-  };
-
-  const drivers =
-    role === "mieter"
-      ? "Treiber sind Strompreis vs. Brennstoffpreis sowie die tatsächlich erreichte Jahresarbeitszahl (JAZ)."
-      : "Treiber sind insbesondere Netto-Investition (nach Förderung), CO₂-Kosten (inkl. Aufteilung) und die JAZ.";
-
-  const paybackText =
-    role !== "mieter" && (result.extraInvest ?? 0) > 0
-      ? p.payback
-        ? `Die Mehrinvestition amortisiert sich nach ca. ${p.payback} Jahren (unter den getroffenen Annahmen).`
-        : "Innerhalb des Betrachtungszeitraums amortisiert sich die Mehrinvestition nicht vollständig."
-      : null;
-
-  const nextStepsByRole: Record<Role, string[]> = {
-    vermieter: [
-      "Förderfähigkeit prüfen (Gebäudeart/Bonusse) und Zuschuss übernehmen.",
-      "Angebote einholen (inkl. Hydraulik/Heizkörpercheck) und Investitionsannahmen validieren.",
-      "Sensitivität prüfen: Strom-/Brennstoffpreise, JAZ, CO₂-Szenario.",
-    ],
-    mieter: [
-      "Auf realistische JAZ achten (Hydraulik, Vorlauftemperatur, Heizflächen).",
-      "Stromtarif/WP-Tarif prüfen und Brennstoffpreise gegenüberstellen.",
-      "Bei Modernisierung: Nebenkosten- und Umlageeffekte transparent klären.",
-    ],
-    eigentuemer: [
-      "Angebote einholen und JAZ realistisch ansetzen (Vorlauf/Heizkörper/Warmwasser).",
-      "Förderung optimieren und Zuschuss in die Rechnung übernehmen.",
-      "Optional: PV/Wärmestromtarif als Hebel berücksichtigen.",
-    ],
-  };
-
-  return {
-    label: p.label,
-    headline,
-    intro: introByRole[role],
-    drivers,
-    paybackText,
-    nextSteps: nextStepsByRole[role],
-  };
-}
-
 // ===== Druckstabile SVG-Grafiken =====
 
 function buildLinePath(values: number[], w: number, h: number, pad: number, maxY: number) {
@@ -276,15 +181,28 @@ function MiniCostChart({
   const h = 240;
   const pad = 30;
 
-  const maxY = Math.max(1, ...seriesFossil.map((v) => Number(v || 0)), ...seriesHP.map((v) => Number(v || 0)));
+  const maxY = Math.max(
+    1,
+    ...seriesFossil.map((v) => Number(v || 0)),
+    ...seriesHP.map((v) => Number(v || 0))
+  );
+
   const dF = buildLinePath(seriesFossil, w, h, pad, maxY);
   const dH = buildLinePath(seriesHP, w, h, pad, maxY);
 
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Kumulierte Kosten (druckstabil)</div>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
+        Kumulierte Kosten (druckstabil)
+      </div>
 
-      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kumulierte Kosten">
+      <svg
+        width="100%"
+        viewBox={`0 0 ${w} ${h}`}
+        xmlns="http://www.w3.org/2000/svg"
+        role="img"
+        aria-label="Kumulierte Kosten"
+      >
         <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
         <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
 
@@ -355,9 +273,17 @@ function MiniTotalBarChart({
 
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Gesamtkosten im Zeitraum (druckstabil)</div>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
+        Gesamtkosten im Zeitraum (druckstabil)
+      </div>
 
-      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gesamtkosten Balken">
+      <svg
+        width="100%"
+        viewBox={`0 0 ${w} ${h}`}
+        xmlns="http://www.w3.org/2000/svg"
+        role="img"
+        aria-label="Gesamtkosten Balken"
+      >
         <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
         <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
 
@@ -367,17 +293,43 @@ function MiniTotalBarChart({
         <rect x={x1} y={yBase - fH} width={barW} height={fH} fill="#ef4444" />
         <rect x={x2} y={yBase - hH} width={barW} height={hH} fill="#2563eb" />
 
-        <text x={x1 + barW / 2} y={yBase + 18} fontSize="12" fill="#334155" textAnchor="middle">
+        <text
+          x={x1 + barW / 2}
+          y={yBase + 18}
+          fontSize="12"
+          fill="#334155"
+          textAnchor="middle"
+        >
           {labelFossil}
         </text>
-        <text x={x2 + barW / 2} y={yBase + 18} fontSize="12" fill="#334155" textAnchor="middle">
+        <text
+          x={x2 + barW / 2}
+          y={yBase + 18}
+          fontSize="12"
+          fill="#334155"
+          textAnchor="middle"
+        >
           {labelHP}
         </text>
 
-        <text x={x1 + barW / 2} y={yBase - fH - 8} fontSize="12" fill="#0f172a" textAnchor="middle" fontWeight="700">
+        <text
+          x={x1 + barW / 2}
+          y={yBase - fH - 8}
+          fontSize="12"
+          fill="#0f172a"
+          textAnchor="middle"
+          fontWeight="700"
+        >
           {Math.round(Number(fossil || 0)).toLocaleString("de-DE")} €
         </text>
-        <text x={x2 + barW / 2} y={yBase - hH - 8} fontSize="12" fill="#0f172a" textAnchor="middle" fontWeight="700">
+        <text
+          x={x2 + barW / 2}
+          y={yBase - hH - 8}
+          fontSize="12"
+          fill="#0f172a"
+          textAnchor="middle"
+          fontWeight="700"
+        >
           {Math.round(Number(hp || 0)).toLocaleString("de-DE")} €
         </text>
 
@@ -404,8 +356,6 @@ function PrintModal({
   form: FormState;
   result: CalcResult;
 }) {
-  const narrative = useMemo(() => getNarrative(role, form, result), [role, form, result]);
-
   const totals =
     role === "vermieter"
       ? { fossil: result.totalLandlordFossil, wp: result.totalLandlordHP, savings: result.savingsLandlord }
@@ -419,6 +369,35 @@ function PrintModal({
       : role === "mieter"
       ? { fossil: result.cumTenantFossil, hp: result.cumTenantHP }
       : { fossil: result.cumOwnerFossil, hp: result.cumOwnerHP };
+
+  const narrativeInput: NarrativeInput = useMemo(() => {
+    const years = form.years ?? 20;
+
+    if (role === "vermieter") {
+      return {
+        years,
+        savings: result.savingsLandlord,
+        totalFossil: result.totalLandlordFossil,
+        payback: result.extraInvest <= 0 ? null : result.paybackLandlord,
+      };
+    }
+    if (role === "mieter") {
+      return {
+        years,
+        savings: result.savingsTenant,
+        totalFossil: result.totalTenantFossil,
+        payback: null,
+      };
+    }
+    return {
+      years,
+      savings: result.savingsOwner,
+      totalFossil: result.totalOwnerFossil,
+      payback: result.extraInvest <= 0 ? null : result.paybackOwner,
+    };
+  }, [role, form.years, result]);
+
+  const narrative = useMemo(() => getNarrative(role, narrativeInput), [role, narrativeInput]);
 
   useEffect(() => {
     if (!open) return;
@@ -445,8 +424,15 @@ function PrintModal({
             <button
               type="button"
               className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
-              onClick={() => {
-                // 2 Frames warten, damit Layout/Logo sicher steht
+              onClick={async () => {
+                // Optional: warten, bis das Logo geladen ist
+                const img = document.querySelector<HTMLImageElement>("#printArea img");
+                if (img && !img.complete) {
+                  await new Promise<void>((resolve) => {
+                    img.onload = () => resolve();
+                    img.onerror = () => resolve();
+                  });
+                }
                 requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
               }}
             >
@@ -464,29 +450,33 @@ function PrintModal({
 
         <div id="printArea" className="report">
           <div className="report-header">
+            {/* Stelle sicher: Datei liegt unter /public/logo.png (kleingeschrieben) */}
             <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
             <div className="report-head-right">
               <div className="report-title">Heizungs-Vergleich – Bericht</div>
               <div className="report-muted">
-                Rolle: <b>{narrative.label}</b>
+                Rolle: <b>{role === "eigentuemer" ? "Eigentümer (Selbstnutzer)" : role === "vermieter" ? "Vermieter" : "Mieter"}</b>
                 <br />
                 Datum: {new Date().toLocaleString("de-DE")}
               </div>
             </div>
           </div>
 
+          {/* Narrative / Summary / Detail */}
           <div className="report-card">
             <div className="report-h2">{narrative.headline}</div>
-            <div style={{ marginTop: 6 }}>{narrative.intro}</div>
-            <div className="report-muted" style={{ marginTop: 8 }}>
-              {narrative.drivers}
+
+            <div className="report-summary">
+              <div className="report-summary-label">Kurzfazit</div>
+              <div className="report-summary-text">{narrative.short}</div>
             </div>
-            {narrative.paybackText && (
-              <div style={{ marginTop: 8 }}>
-                <b>{narrative.paybackText}</b>
-              </div>
-            )}
-            <div style={{ marginTop: 12 }}>
+
+            <div className="report-detail">
+              <div className="report-detail-label">Einordnung</div>
+              <div className="report-detail-text">{narrative.detail}</div>
+            </div>
+
+            <div className="report-next">
               <div className="report-h3">Nächste Schritte</div>
               <ul className="report-ul">
                 {narrative.nextSteps.map((s, i) => (
@@ -496,6 +486,7 @@ function PrintModal({
             </div>
           </div>
 
+          {/* KPIs */}
           <div className="report-kpis">
             <div className="report-card">
               <div className="report-muted" style={{ fontWeight: 700 }}>
@@ -518,9 +509,11 @@ function PrintModal({
             </div>
           </div>
 
+          {/* Druckstabile Grafiken */}
           <MiniCostChart seriesFossil={series.fossil} seriesHP={series.hp} />
           <MiniTotalBarChart fossil={totals.fossil} hp={totals.wp} />
 
+          {/* Annahmen */}
           <div className="report-section">
             <div className="report-h3">Grundannahmen</div>
             <table className="report-table">
@@ -560,6 +553,7 @@ function PrintModal({
                 </tr>
               </tbody>
             </table>
+
             <div className="report-muted" style={{ marginTop: 10 }}>
               Hinweis: Vereinfachtes Modell. Alle Angaben ohne Gewähr; maßgeblich sind aktuelle Richtlinien, Verträge und reale Anlagenwerte.
             </div>
@@ -587,14 +581,14 @@ export default function ToolPage() {
 
     investFossil: 30000,
     effFossil: 90,
-    priceFossil0: 10,
+    priceFossil0: 10, // ct/kWh
     incFossil: 3,
     maintFossil: 800,
 
     investHP: 60000,
     subsidyHP: 15000,
     jaz: 3.0,
-    priceEl0: 30,
+    priceEl0: 30, // ct/kWh
     incEl: 2,
     maintHP: 600,
   });
@@ -658,7 +652,7 @@ export default function ToolPage() {
     try {
       const body = {
         ...foerderForm,
-        invest: form.investHP,
+        invest: form.investHP, // aus Heizungsvergleich
         area: form.area,
         units: form.units,
       };
@@ -699,6 +693,7 @@ export default function ToolPage() {
         note: "Vereinfachte Annahme: Vermieter zahlt Wartung + Vermieteranteil CO₂. Energie zahlt der Mieter.",
       };
     }
+
     if (role === "mieter") {
       return {
         label: "Mieter",
@@ -714,6 +709,7 @@ export default function ToolPage() {
         note: "Vereinfachte Annahme: Mieter zahlt Energie + Mieteranteil CO₂. Investitionen werden hier nicht betrachtet.",
       };
     }
+
     return {
       label: "Eigentümer (Selbstnutzer)",
       totalFossil: result.totalOwnerFossil,
@@ -750,7 +746,7 @@ export default function ToolPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 text-sm">
-      {/* ✅ Globale Styles inkl. PRINT – hier einmalig */}
+      {/* Global Styles inkl. PRINT – einmalig */}
       <style jsx global>{`
         .print-modal-overlay {
           position: fixed;
@@ -863,14 +859,40 @@ export default function ToolPage() {
           font-weight: 800;
         }
 
-        /* ✅ Der entscheidende Fix: display:none statt visibility – keine leeren Seiten */
+        /* Narrative blocks */
+        .report-summary {
+          margin-top: 10px;
+          padding: 10px;
+          border-radius: 10px;
+          border: 1px solid #e2e8f0;
+          background: #f8fafc;
+        }
+        .report-summary-label,
+        .report-detail-label {
+          font-size: 12px;
+          font-weight: 800;
+          color: #334155;
+          margin-bottom: 4px;
+        }
+        .report-summary-text,
+        .report-detail-text {
+          font-size: 13px;
+          line-height: 1.45;
+          color: #0f172a;
+        }
+        .report-detail {
+          margin-top: 10px;
+        }
+        .report-next {
+          margin-top: 12px;
+        }
+
+        /* PRINT: Alles ausblenden, außer Portal -> keine leeren Seiten */
         @media print {
-          /* alles ausblenden ... */
           body > * {
             display: none !important;
           }
 
-          /* ... außer dem Portal (liegt direkt unter body) */
           #print-portal-root {
             display: block !important;
             position: static !important;
@@ -878,12 +900,10 @@ export default function ToolPage() {
             padding: 0 !important;
           }
 
-          /* Toolbar aus */
           #print-portal-root .print-modal-bar {
             display: none !important;
           }
 
-          /* Modal “entkernen” */
           #print-portal-root .print-modal {
             height: auto !important;
             width: auto !important;
@@ -892,7 +912,6 @@ export default function ToolPage() {
             border-radius: 0 !important;
           }
 
-          /* Report nicht scrollen im Print */
           #printArea {
             overflow: visible !important;
           }
@@ -910,6 +929,7 @@ export default function ToolPage() {
         Vergleich fossil vs. Wärmepumpe. Ergebnisse können je nach Rolle (Eigentümer/Vermieter/Mieter) unterschiedlich ausfallen.
       </p>
 
+      {/* Rolle */}
       <div className="bg-white border rounded-xl p-4 shadow-sm mb-6">
         <label className="block text-xs font-medium text-slate-700 mb-1">Deine Rolle / Zielgruppe</label>
         <select
@@ -926,6 +946,7 @@ export default function ToolPage() {
         </p>
       </div>
 
+      {/* Tabs */}
       <div className="flex border-b mb-6 text-sm">
         <button
           className={
@@ -956,24 +977,54 @@ export default function ToolPage() {
           <form onSubmit={handleCalc} className="grid gap-6 md:grid-cols-2 mb-8">
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700">Heizwärmebedarf / Energieverbrauch (kWh/a)</label>
-                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.heatDemand} onChange={(e) => updateField("heatDemand", e.target.value)} />
+                <label className="block text-xs font-medium text-slate-700">
+                  Heizwärmebedarf / Energieverbrauch (kWh/a)
+                </label>
+                <input
+                  type="number"
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.heatDemand}
+                  onChange={(e) => updateField("heatDemand", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-700">Gebäudefläche (m²)</label>
-                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.area} onChange={(e) => updateField("area", e.target.value)} />
+                <input
+                  type="number"
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.area}
+                  onChange={(e) => updateField("area", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-700">Wohneinheiten</label>
-                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.units} onChange={(e) => updateField("units", e.target.value)} />
+                <input
+                  type="number"
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.units}
+                  onChange={(e) => updateField("units", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-700">Betrachtungszeitraum (Jahre)</label>
-                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.years} onChange={(e) => updateField("years", e.target.value)} />
+                <input
+                  type="number"
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.years}
+                  onChange={(e) => updateField("years", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-700">CO₂-Preisszenario</label>
-                <select className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.scenario} onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}>
+                <select
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.scenario}
+                  onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}
+                >
                   <option>Sehr niedrig</option>
                   <option>Niedrig</option>
                   <option>Experten</option>
@@ -981,9 +1032,14 @@ export default function ToolPage() {
                   <option>Sehr hoch</option>
                 </select>
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-700">Energiequelle fossile Heizung</label>
-                <select className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.carrierFossil} onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}>
+                <select
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.carrierFossil}
+                  onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
+                >
                   <option value="Erdgas">Erdgas</option>
                   <option value="Flüssiggas">Flüssiggas</option>
                   <option value="Heizöl">Heizöl</option>
@@ -994,28 +1050,56 @@ export default function ToolPage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700">Investitionskosten fossile Heizung (€, einmalig)</label>
-                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.investFossil} onChange={(e) => updateField("investFossil", e.target.value)} />
+                <label className="block text-xs font-medium text-slate-700">
+                  Investitionskosten fossile Heizung (€, einmalig)
+                </label>
+                <input
+                  type="number"
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.investFossil}
+                  onChange={(e) => updateField("investFossil", e.target.value)}
+                />
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-700">Wirkungsgrad fossile Heizung (%)</label>
-                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.effFossil} onChange={(e) => updateField("effFossil", e.target.value)} />
+                <input
+                  type="number"
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.effFossil}
+                  onChange={(e) => updateField("effFossil", e.target.value)}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-slate-700">Brennstoffpreis heute (ct/kWh)</label>
-                  <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.priceFossil0} onChange={(e) => updateField("priceFossil0", e.target.value)} />
+                  <input
+                    type="number"
+                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                    value={form.priceFossil0}
+                    onChange={(e) => updateField("priceFossil0", e.target.value)}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-700">Preissteigerung Brennstoff (%/a)</label>
-                  <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.incFossil} onChange={(e) => updateField("incFossil", e.target.value)} />
+                  <input
+                    type="number"
+                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                    value={form.incFossil}
+                    onChange={(e) => updateField("incFossil", e.target.value)}
+                  />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten fossile Heizung (€/a)</label>
-                <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.maintFossil} onChange={(e) => updateField("maintFossil", e.target.value)} />
+                <input
+                  type="number"
+                  className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                  value={form.maintFossil}
+                  onChange={(e) => updateField("maintFossil", e.target.value)}
+                />
               </div>
 
               <div className="border-t pt-3 mt-2">
@@ -1024,25 +1108,44 @@ export default function ToolPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Stromquelle / Strommix</label>
-                    <select className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.carrierHP} onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}>
+                    <select
+                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      value={form.carrierHP}
+                      onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}
+                    >
                       <option value="Strom Stromix">Strom Stromix</option>
                       <option value="Strom Erneuerbar">Strom Erneuerbar</option>
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700">JAZ (Jahresarbeitszahl)</label>
-                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.jaz} onChange={(e) => updateField("jaz", e.target.value)} />
+                    <input
+                      type="number"
+                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      value={form.jaz}
+                      onChange={(e) => updateField("jaz", e.target.value)}
+                    />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Investitionskosten WP (brutto, €)</label>
-                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.investHP} onChange={(e) => updateField("investHP", e.target.value)} />
+                    <input
+                      type="number"
+                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      value={form.investHP}
+                      onChange={(e) => updateField("investHP", e.target.value)}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Förderung WP (Zuschuss, €)</label>
-                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.subsidyHP} onChange={(e) => updateField("subsidyHP", e.target.value)} />
+                    <input
+                      type="number"
+                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      value={form.subsidyHP}
+                      onChange={(e) => updateField("subsidyHP", e.target.value)}
+                    />
                     <p className="text-[11px] text-slate-500 mt-1">Tipp: Im Förderrechner „Zuschuss übernehmen“ klicken.</p>
                   </div>
                 </div>
@@ -1050,23 +1153,42 @@ export default function ToolPage() {
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Strompreis heute (ct/kWh)</label>
-                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.priceEl0} onChange={(e) => updateField("priceEl0", e.target.value)} />
+                    <input
+                      type="number"
+                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      value={form.priceEl0}
+                      onChange={(e) => updateField("priceEl0", e.target.value)}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700">Preissteigerung Strom (%/a)</label>
-                    <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.incEl} onChange={(e) => updateField("incEl", e.target.value)} />
+                    <input
+                      type="number"
+                      className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                      value={form.incEl}
+                      onChange={(e) => updateField("incEl", e.target.value)}
+                    />
                   </div>
                 </div>
 
                 <div className="mt-2">
                   <label className="block text-xs font-medium text-slate-700">Wartungs-/Fixkosten WP (€/a)</label>
-                  <input type="number" className="mt-1 w-full border rounded-lg px-2 py-1.5" value={form.maintHP} onChange={(e) => updateField("maintHP", e.target.value)} />
+                  <input
+                    type="number"
+                    className="mt-1 w-full border rounded-lg px-2 py-1.5"
+                    value={form.maintHP}
+                    onChange={(e) => updateField("maintHP", e.target.value)}
+                  />
                 </div>
               </div>
             </div>
 
             <div className="md:col-span-2 flex justify-end mt-2">
-              <button type="submit" disabled={loading} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
+              >
                 {loading ? "Berechne ..." : "Berechnen"}
               </button>
             </div>
@@ -1080,7 +1202,11 @@ export default function ToolPage() {
                 <div>
                   <div className="text-sm font-semibold">{hint.title}</div>
                   <div className="text-xs text-slate-600 mt-1">{hint.text}</div>
+                  <div className="text-[11px] text-slate-500 mt-2">
+                    Tipp: Vor dem Drucken einmal „Berechnen“ klicken, damit der Bericht die aktuellen Werte enthält.
+                  </div>
                 </div>
+
                 <button
                   type="button"
                   className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
@@ -1099,22 +1225,36 @@ export default function ToolPage() {
                   <div className="text-xs text-slate-500">Mehrinvestition WP (netto)</div>
                   <div className="text-lg font-semibold">{formatEuro(result.extraInvest, 0)}</div>
                 </div>
+
                 <div className="bg-white border rounded-xl p-4 shadow-sm">
                   <div className="text-xs text-slate-500">Amortisation ({perspective.label})</div>
                   <div className="text-lg font-semibold">
-                    {result.extraInvest <= 0 ? "Keine Mehrinvestition" : perspective.payback ? `${perspective.payback}. Jahr` : "Keine vollständige Amortisation"}
+                    {result.extraInvest <= 0
+                      ? "Keine Mehrinvestition"
+                      : perspective.payback
+                      ? `${perspective.payback}. Jahr`
+                      : "Keine vollständige Amortisation"}
                   </div>
                 </div>
+
                 <div className="bg-white border rounded-xl p-4 shadow-sm">
                   <div className="text-xs text-slate-500">Vorteil/Nachteil ({perspective.label})</div>
-                  <div className={"text-lg font-semibold " + (perspective.savings > 0 ? "text-emerald-700" : perspective.savings < 0 ? "text-red-700" : "")}>
-                    {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") + formatEuro(Math.abs(perspective.savings), 0)}
+                  <div
+                    className={
+                      "text-lg font-semibold " +
+                      (perspective.savings > 0 ? "text-emerald-700" : perspective.savings < 0 ? "text-red-700" : "")
+                    }
+                  >
+                    {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
+                      formatEuro(Math.abs(perspective.savings), 0)}
                   </div>
                 </div>
               </div>
 
               <div className="bg-white border rounded-xl p-4 shadow-sm">
-                <div className="text-xs text-slate-500 mb-2">Kumulierte Kosten ({perspective.label}) – fossil vs. Wärmepumpe</div>
+                <div className="text-xs text-slate-500 mb-2">
+                  Kumulierte Kosten ({perspective.label}) – fossil vs. Wärmepumpe
+                </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
@@ -1146,6 +1286,40 @@ export default function ToolPage() {
                 </div>
               </div>
 
+              <div className="bg-white border rounded-xl p-4 shadow-sm overflow-x-auto">
+                <div className="text-xs text-slate-500 mb-2">Jährliche Übersicht ({perspective.label})</div>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1 pr-2">Jahr</th>
+                      <th className="text-right py-1 px-2">CO₂-Preis</th>
+                      <th className="text-right py-1 px-2">Kosten fossil</th>
+                      <th className="text-right py-1 px-2">Kosten WP</th>
+                      <th className="text-right py-1 px-2">kumulierte Einsparung</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.rows.map((row) => {
+                      const annualF = (row as any)[perspective.annualKeyFossil] as number;
+                      const annualH = (row as any)[perspective.annualKeyHP] as number;
+                      const cumS = (row as any)[perspective.cumSavingsKey] as number;
+
+                      return (
+                        <tr key={row.year} className="border-b">
+                          <td className="py-1 pr-2">{row.year}</td>
+                          <td className="py-1 px-2 text-right">
+                            {row.co2Price.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €
+                          </td>
+                          <td className="py-1 px-2 text-right">{formatEuro(annualF, 0)}</td>
+                          <td className="py-1 px-2 text-right">{formatEuro(annualH, 0)}</td>
+                          <td className="py-1 px-2 text-right">{formatEuro(cumS, 0)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
               <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
             </section>
           )}
@@ -1168,8 +1342,15 @@ export default function ToolPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Investitionskosten Wärmepumpe (brutto, €)</label>
-              <input type="number" className="w-full border rounded-lg px-2 py-1.5 bg-slate-50" value={form.investHP} readOnly />
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                Investitionskosten Wärmepumpe (brutto, €)
+              </label>
+              <input
+                type="number"
+                className="w-full border rounded-lg px-2 py-1.5 bg-slate-50"
+                value={form.investHP}
+                readOnly
+              />
               <p className="text-[11px] text-slate-500 mt-1">Kommt aus dem Heizungsrechner.</p>
             </div>
 
@@ -1177,15 +1358,27 @@ export default function ToolPage() {
               <div className="space-y-2">
                 <p className="text-xs font-medium text-slate-700">Wohngebäude-Optionen (vereinfacht)</p>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input type="checkbox" checked={foerderForm.wohnKlimaBonus} onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.wohnKlimaBonus}
+                    onChange={(e) => updateFoerderField("wohnKlimaBonus", e.target.checked)}
+                  />
                   Klima-Geschwindigkeitsbonus
                 </label>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input type="checkbox" checked={foerderForm.wohnEinkommensBonus} onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.wohnEinkommensBonus}
+                    onChange={(e) => updateFoerderField("wohnEinkommensBonus", e.target.checked)}
+                  />
                   Einkommensbonus
                 </label>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input type="checkbox" checked={foerderForm.wohnEffizienzBonus} onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.wohnEffizienzBonus}
+                    onChange={(e) => updateFoerderField("wohnEffizienzBonus", e.target.checked)}
+                  />
                   Effizienzbonus
                 </label>
               </div>
@@ -1193,13 +1386,21 @@ export default function ToolPage() {
               <div className="space-y-2">
                 <p className="text-xs font-medium text-slate-700">Nichtwohngebäude-Optionen (vereinfacht)</p>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input type="checkbox" checked={foerderForm.nwgEffizienzBonus} onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={foerderForm.nwgEffizienzBonus}
+                    onChange={(e) => updateFoerderField("nwgEffizienzBonus", e.target.checked)}
+                  />
                   Effizienzbonus
                 </label>
               </div>
             )}
 
-            <button type="submit" disabled={foerderLoading} className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60">
+            <button
+              type="submit"
+              disabled={foerderLoading}
+              className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60"
+            >
               {foerderLoading ? "Berechne Förderung ..." : "Förderung berechnen"}
             </button>
 
