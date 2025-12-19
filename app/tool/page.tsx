@@ -358,10 +358,22 @@ function PrintModal({
 }) {
   const totals =
     role === "vermieter"
-      ? { fossil: result.totalLandlordFossil, wp: result.totalLandlordHP, savings: result.savingsLandlord }
+      ? {
+          fossil: result.totalLandlordFossil,
+          wp: result.totalLandlordHP,
+          savings: result.savingsLandlord,
+        }
       : role === "mieter"
-      ? { fossil: result.totalTenantFossil, wp: result.totalTenantHP, savings: result.savingsTenant }
-      : { fossil: result.totalOwnerFossil, wp: result.totalOwnerHP, savings: result.savingsOwner };
+      ? {
+          fossil: result.totalTenantFossil,
+          wp: result.totalTenantHP,
+          savings: result.savingsTenant,
+        }
+      : {
+          fossil: result.totalOwnerFossil,
+          wp: result.totalOwnerHP,
+          savings: result.savingsOwner,
+        };
 
   const series =
     role === "vermieter"
@@ -449,13 +461,20 @@ function PrintModal({
         </div>
 
         <div id="printArea" className="report">
-          <div className="report-header">
+          <div className="report-header print-avoid-break">
             {/* Stelle sicher: Datei liegt unter /public/logo.png (kleingeschrieben) */}
             <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
             <div className="report-head-right">
               <div className="report-title">Heizungs-Vergleich – Bericht</div>
               <div className="report-muted">
-                Rolle: <b>{role === "eigentuemer" ? "Eigentümer (Selbstnutzer)" : role === "vermieter" ? "Vermieter" : "Mieter"}</b>
+                Rolle:{" "}
+                <b>
+                  {role === "eigentuemer"
+                    ? "Eigentümer (Selbstnutzer)"
+                    : role === "vermieter"
+                    ? "Vermieter"
+                    : "Mieter"}
+                </b>
                 <br />
                 Datum: {new Date().toLocaleString("de-DE")}
               </div>
@@ -463,7 +482,7 @@ function PrintModal({
           </div>
 
           {/* Narrative / Summary / Detail */}
-          <div className="report-card">
+          <div className="report-card print-avoid-break">
             <div className="report-h2">{narrative.headline}</div>
 
             <div className="report-summary">
@@ -486,35 +505,41 @@ function PrintModal({
             </div>
           </div>
 
-          {/* KPIs */}
-          <div className="report-kpis">
-            <div className="report-card">
-              <div className="report-muted" style={{ fontWeight: 700 }}>
-                Gesamtkosten fossil
+          {/* KPIs (als Chunk: nicht zerreißen) */}
+          <div className="print-chunk">
+            <div className="report-kpis">
+              <div className="report-card">
+                <div className="report-muted" style={{ fontWeight: 700 }}>
+                  Gesamtkosten fossil
+                </div>
+                <div className="report-kpi">{formatEuro(totals.fossil, 0)}</div>
               </div>
-              <div className="report-kpi">{formatEuro(totals.fossil, 0)}</div>
-            </div>
-            <div className="report-card">
-              <div className="report-muted" style={{ fontWeight: 700 }}>
-                Gesamtkosten Wärmepumpe
+              <div className="report-card">
+                <div className="report-muted" style={{ fontWeight: 700 }}>
+                  Gesamtkosten Wärmepumpe
+                </div>
+                <div className="report-kpi">{formatEuro(totals.wp, 0)}</div>
               </div>
-              <div className="report-kpi">{formatEuro(totals.wp, 0)}</div>
-            </div>
-            <div className="report-card">
-              <div className="report-muted" style={{ fontWeight: 700 }}>
-                Vorteil/Nachteil WP
+              <div className="report-card">
+                <div className="report-muted" style={{ fontWeight: 700 }}>
+                  Vorteil/Nachteil WP
+                </div>
+                <div className="report-kpi">{formatEuro(totals.savings, 0)}</div>
+                <div className="report-muted">(positiv = Vorteil)</div>
               </div>
-              <div className="report-kpi">{formatEuro(totals.savings, 0)}</div>
-              <div className="report-muted">(positiv = Vorteil)</div>
             </div>
           </div>
 
-          {/* Druckstabile Grafiken */}
-          <MiniCostChart seriesFossil={series.fossil} seriesHP={series.hp} />
-          <MiniTotalBarChart fossil={totals.fossil} hp={totals.wp} />
+          {/* Druckstabile Grafiken (jeweils Chunk) */}
+          <div className="print-chunk">
+            <MiniCostChart seriesFossil={series.fossil} seriesHP={series.hp} />
+          </div>
+          <div className="print-chunk">
+            <MiniTotalBarChart fossil={totals.fossil} hp={totals.wp} />
+          </div>
 
-          {/* Annahmen */}
-          <div className="report-section">
+          {/* Annahmen: optional auf neue Seite */}
+          <div className="report-section print-page-break">
             <div className="report-h3">Grundannahmen</div>
             <table className="report-table">
               <tbody>
@@ -557,6 +582,12 @@ function PrintModal({
             <div className="report-muted" style={{ marginTop: 10 }}>
               Hinweis: Vereinfachtes Modell. Alle Angaben ohne Gewähr; maßgeblich sind aktuelle Richtlinien, Verträge und reale Anlagenwerte.
             </div>
+          </div>
+
+          {/* Print Footer */}
+          <div className="report-footer">
+            <span>Brüser Energieberatung · Heizungs-Vergleich</span>
+            <span>{new Date().toLocaleDateString("de-DE")}</span>
           </div>
         </div>
       </div>
@@ -921,6 +952,66 @@ export default function ToolPage() {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
+
+          /* ===== Sprint 1 – Schritt 3: Print-Feinschliff ===== */
+
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
+
+          /* Platz für Footer */
+          #printArea {
+            padding-bottom: 18mm !important;
+          }
+
+          /* Keine zerrissenen Blöcke */
+          .report-card,
+          .report-kpis,
+          .print-avoid-break,
+          .print-avoid-break * {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          /* Charts zusammenhalten */
+          .print-chunk {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          /* Bewusster Seitenumbruch */
+          .print-page-break {
+            break-before: page !important;
+            page-break-before: always !important;
+          }
+
+          /* Header nicht zerreißen */
+          .report-header {
+            break-after: avoid !important;
+            page-break-after: avoid !important;
+          }
+
+          /* KPIs im Print als 1 Spalte (verhindert knappe Umbrüche) */
+          .report-kpis {
+            grid-template-columns: 1fr !important;
+          }
+
+          /* Footer im Print */
+          .report-footer {
+            position: fixed;
+            left: 12mm;
+            right: 12mm;
+            bottom: 8mm;
+            font-size: 10px;
+            color: #64748b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 4mm;
+            background: white;
+          }
         }
       `}</style>
 
@@ -931,7 +1022,9 @@ export default function ToolPage() {
 
       {/* Rolle */}
       <div className="bg-white border rounded-xl p-4 shadow-sm mb-6">
-        <label className="block text-xs font-medium text-slate-700 mb-1">Deine Rolle / Zielgruppe</label>
+        <label className="block text-xs font-medium text-slate-700 mb-1">
+          Deine Rolle / Zielgruppe
+        </label>
         <select
           className="w-full md:w-[360px] border rounded-lg px-2 py-1.5"
           value={role}
@@ -1202,9 +1295,6 @@ export default function ToolPage() {
                 <div>
                   <div className="text-sm font-semibold">{hint.title}</div>
                   <div className="text-xs text-slate-600 mt-1">{hint.text}</div>
-                  <div className="text-[11px] text-slate-500 mt-2">
-                    Tipp: Vor dem Drucken einmal „Berechnen“ klicken, damit der Bericht die aktuellen Werte enthält.
-                  </div>
                 </div>
 
                 <button
