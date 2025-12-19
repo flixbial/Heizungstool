@@ -354,7 +354,7 @@ function MiniCostChart({
         Kumulierte Kosten im Zeitverlauf
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${w} 0 ${h}`.replace(" 0 ", " ")} xmlns="http://www.w3.org/2000/svg">
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg">
         <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
         <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
 
@@ -711,7 +711,7 @@ function PrintModal({
 }
 
 export default function ToolPage() {
-  const [tab, setTab] = useState<"vergleich">("vergleich");
+  const [tab] = useState<"vergleich">("vergleich");
   const [role, setRole] = useState<Role>("eigentuemer");
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
@@ -830,7 +830,7 @@ export default function ToolPage() {
   const [subsidyApplied, setSubsidyApplied] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
 
-  // ✅ neu: merken, ob der Bericht mindestens einmal geöffnet wurde
+  // merken, ob Bericht mindestens einmal geöffnet wurde
   const [hasOpenedReport, setHasOpenedReport] = useState(false);
 
   function applyPreset(key: PresetKey) {
@@ -854,17 +854,45 @@ export default function ToolPage() {
       [key]: typeof prev[key] === "number" ? Number(value.replace(",", ".")) : (value as any),
     }));
     setResult(null);
+    setHasOpenedReport(false);
   }
 
-  async function handleCalc() {
+  function updateFoerderField<K extends keyof FoerderForm>(key: K, value: FoerderForm[K]) {
+    setFoerderForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  // ===== Mini-Validierung (Step 4.2) =====
+  function validateFormForCalc(f: FormState): string | null {
+    if (!Number.isFinite(f.heatDemand) || f.heatDemand <= 0) return "Bitte einen gültigen Heizwärmebedarf (> 0) eingeben.";
+    if (!Number.isFinite(f.area) || f.area <= 0) return "Bitte eine gültige Gebäudefläche (> 0) eingeben.";
+    if (!Number.isFinite(f.years) || f.years <= 0) return "Bitte einen gültigen Zeitraum (> 0 Jahre) eingeben.";
+    if (!Number.isFinite(f.jaz) || f.jaz <= 0) return "Bitte eine gültige JAZ (> 0) für die Wärmepumpe eingeben.";
+    if (!Number.isFinite(f.investHP) || f.investHP < 0) return "Bitte gültige Investitionskosten der Wärmepumpe (≥ 0) eingeben.";
+    if (!Number.isFinite(f.subsidyHP) || f.subsidyHP < 0) return "Bitte eine gültige Förderung (≥ 0) eingeben.";
+    return null;
+  }
+
+  // Einheitliche Berechnung mit explizitem Form (damit Skip sauber funktioniert)
+  async function runCalc(withForm: FormState) {
+    const msg = validateFormForCalc(withForm);
+    if (msg) {
+      setError(msg);
+      setResult(null);
+      // Wir bleiben im Förder-Schritt, damit der User es direkt korrigieren kann
+      setWizardStep(4);
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
+
     try {
       const res = await fetch("/api/calc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(withForm),
       });
       if (!res.ok) throw new Error("Fehler bei der Berechnung");
       const data = (await res.json()) as CalcResult;
@@ -873,13 +901,14 @@ export default function ToolPage() {
       requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
     } catch (err: any) {
       setError(err.message ?? "Unbekannter Fehler");
+      setWizardStep(4);
     } finally {
       setLoading(false);
     }
   }
 
-  function updateFoerderField<K extends keyof FoerderForm>(key: K, value: FoerderForm[K]) {
-    setFoerderForm((prev) => ({ ...prev, [key]: value }));
+  async function handleCalc() {
+    await runCalc(form);
   }
 
   async function handleFoerderCalc() {
@@ -912,7 +941,7 @@ export default function ToolPage() {
     }
   }
 
-  // ✅ neu: Neustart (für Ergebnis-Reiter)
+  // Neustart (Ergebnis-Reiter)
   function handleRestart() {
     setShowPrint(false);
     setResult(null);
@@ -931,9 +960,6 @@ export default function ToolPage() {
     setForm(DEFAULT_FORM);
 
     setWizardStep(0);
-
-    // falls du später LocalStorage nutzt:
-    // localStorage.removeItem("heizungstool_state");
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
@@ -1249,9 +1275,7 @@ export default function ToolPage() {
 
       <div className="flex items-center justify-between gap-4 mb-8">
         <div>
-          <div className="text-3xl font-semibold text-slate-900 leading-tight">
-            Heizungs-Vergleich
-          </div>
+          <div className="text-3xl font-semibold text-slate-900 leading-tight">Heizungs-Vergleich</div>
           <div className="mt-2 text-slate-600 max-w-2xl">
             Geführter Wizard inkl. <b>Förder-Schritt</b> vor der Berechnung – inkl. druckfähigem Bericht.
           </div>
@@ -1714,7 +1738,7 @@ export default function ToolPage() {
                   <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                     <div className="text-sm font-semibold text-slate-900">Jetzt Gesamtergebnis berechnen</div>
                     <div className="mt-1 text-xs text-slate-600">
-                      Optional: Sie können auch ohne Förderberechnung fortfahren (Zuschuss ggf. manuell eintragen).
+                      Optional: Sie können auch ohne Förderberechnung fortfahren.
                     </div>
 
                     <button
@@ -1724,6 +1748,24 @@ export default function ToolPage() {
                       onClick={handleCalc}
                     >
                       {loading ? "Berechnung läuft ..." : "Gesamtergebnis berechnen"}
+                    </button>
+
+                    {/* ✅ Step 4.1: Skip Förderung */}
+                    <button
+                      type="button"
+                      disabled={loading}
+                      className="w-full mt-2 px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm font-semibold disabled:opacity-60 hover:bg-slate-50"
+                      onClick={async () => {
+                        const nextForm: FormState = { ...form, subsidyHP: 0 };
+                        setForm(nextForm);
+                        setFoerderResult(null);
+                        setSubsidyApplied(false);
+                        setHasOpenedReport(false);
+                        await runCalc(nextForm);
+                      }}
+                      title="Berechnung ohne Zuschuss durchführen"
+                    >
+                      Förderung überspringen (Zuschuss = 0)
                     </button>
 
                     {error && <div className="mt-2 text-sm text-red-600">{error}</div>}
@@ -1794,7 +1836,6 @@ export default function ToolPage() {
                       </div>
                     </div>
 
-                    {/* ✅ Actions: Bericht + Neustart im Ergebnis-Reiter */}
                     <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                       <div className="text-sm text-slate-700">
                         <b>Tipp:</b> Erstellen Sie den Bericht direkt nach der Berechnung.
@@ -1812,18 +1853,14 @@ export default function ToolPage() {
                           Bericht erstellen & drucken
                         </button>
 
-                        {/* Neustart immer sichtbar ODER nur nach Bericht öffnen:
-                            Wenn du es nur nach Bericht willst, ersetze "true" durch "hasOpenedReport". */}
-                        {true && (
-                          <button
-                            type="button"
-                            className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
-                            onClick={handleRestart}
-                            title={hasOpenedReport ? "Neustart nach Bericht" : "Neustart des Tools"}
-                          >
-                            Neustart
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
+                          onClick={handleRestart}
+                          title={hasOpenedReport ? "Neustart nach Bericht" : "Neustart des Tools"}
+                        >
+                          Neustart
+                        </button>
                       </div>
                     </div>
 
@@ -1873,13 +1910,7 @@ export default function ToolPage() {
                     </div>
                   </Section>
 
-                  <PrintModal
-                    open={showPrint}
-                    onClose={() => setShowPrint(false)}
-                    role={role}
-                    form={form}
-                    result={result}
-                  />
+                  <PrintModal open={showPrint} onClose={() => setShowPrint(false)} role={role} form={form} result={result} />
                 </>
               )}
             </>
