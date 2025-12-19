@@ -119,6 +119,8 @@ interface FoerderResult {
   foerderhoechstbetragNWG: number | null;
 }
 
+type FormErrors = Partial<Record<keyof FormState, string>>;
+
 // ===== Defaults (für Neustart) =====
 const DEFAULT_FORM: FormState = {
   heatDemand: 30000,
@@ -191,6 +193,13 @@ function getPrintHint(role: Role) {
   };
 }
 
+function inputClass(hasError?: boolean) {
+  return (
+    "w-full border rounded-xl px-3 py-2 bg-white " +
+    (hasError ? "border-rose-400 focus:border-rose-500 focus:ring-rose-200" : "border-slate-200")
+  );
+}
+
 /** Premium UI helper */
 function Section({
   title,
@@ -226,10 +235,12 @@ function Section({
 function Field({
   label,
   hint,
+  error,
   children,
 }: {
   label: string;
   hint?: string;
+  error?: string | null;
   children: React.ReactNode;
 }) {
   return (
@@ -239,6 +250,7 @@ function Field({
         {hint ? <span className="text-[11px] text-slate-500">{hint}</span> : null}
       </div>
       <div className="mt-1">{children}</div>
+      {error ? <div className="mt-1 text-[11px] text-rose-600">{error}</div> : null}
     </div>
   );
 }
@@ -716,6 +728,9 @@ export default function ToolPage() {
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
 
+  // ✅ Step 4.3: Feld-Errors für UX (rot markieren)
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
+
   // ===== Quick-Start Presets =====
   type PresetKey = "efh" | "mfh" | "gewerbe";
   const PRESETS: Record<
@@ -829,8 +844,6 @@ export default function ToolPage() {
 
   const [subsidyApplied, setSubsidyApplied] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
-
-  // merken, ob Bericht mindestens einmal geöffnet wurde
   const [hasOpenedReport, setHasOpenedReport] = useState(false);
 
   function applyPreset(key: PresetKey) {
@@ -839,6 +852,7 @@ export default function ToolPage() {
     if (preset.roleHint) setRole(preset.roleHint);
     setActivePreset(key);
 
+    setFormErrors({});
     setResult(null);
     setError(null);
     setFoerderResult(null);
@@ -849,6 +863,15 @@ export default function ToolPage() {
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
     setActivePreset(null);
+
+    // ✅ Step 4.3: Field-Error beim Tippen löschen
+    setFormErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+
     setForm((prev) => ({
       ...prev,
       [key]: typeof prev[key] === "number" ? Number(value.replace(",", ".")) : (value as any),
@@ -861,29 +884,41 @@ export default function ToolPage() {
     setFoerderForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  // ===== Mini-Validierung (Step 4.2) =====
-  function validateFormForCalc(f: FormState): string | null {
-    if (!Number.isFinite(f.heatDemand) || f.heatDemand <= 0) return "Bitte einen gültigen Heizwärmebedarf (> 0) eingeben.";
-    if (!Number.isFinite(f.area) || f.area <= 0) return "Bitte eine gültige Gebäudefläche (> 0) eingeben.";
-    if (!Number.isFinite(f.years) || f.years <= 0) return "Bitte einen gültigen Zeitraum (> 0 Jahre) eingeben.";
-    if (!Number.isFinite(f.jaz) || f.jaz <= 0) return "Bitte eine gültige JAZ (> 0) für die Wärmepumpe eingeben.";
-    if (!Number.isFinite(f.investHP) || f.investHP < 0) return "Bitte gültige Investitionskosten der Wärmepumpe (≥ 0) eingeben.";
-    if (!Number.isFinite(f.subsidyHP) || f.subsidyHP < 0) return "Bitte eine gültige Förderung (≥ 0) eingeben.";
-    return null;
+  // ===== Mini-Validierung (Step 4.2) + Field Errors (Step 4.3) =====
+  function validateFormForCalc(f: FormState): { ok: true } | { ok: false; message: string; errors: FormErrors } {
+    const errors: FormErrors = {};
+
+    if (!Number.isFinite(f.heatDemand) || f.heatDemand <= 0) errors.heatDemand = "Heizwärmebedarf muss > 0 sein.";
+    if (!Number.isFinite(f.area) || f.area <= 0) errors.area = "Fläche muss > 0 sein.";
+    if (!Number.isFinite(f.years) || f.years <= 0) errors.years = "Zeitraum muss > 0 sein.";
+    if (!Number.isFinite(f.jaz) || f.jaz <= 0) errors.jaz = "JAZ muss > 0 sein.";
+    if (!Number.isFinite(f.investHP) || f.investHP < 0) errors.investHP = "Investitionskosten müssen ≥ 0 sein.";
+    if (!Number.isFinite(f.subsidyHP) || f.subsidyHP < 0) errors.subsidyHP = "Förderung muss ≥ 0 sein.";
+
+    if (Object.keys(errors).length > 0) {
+      return {
+        ok: false,
+        message: "Bitte korrigieren Sie die markierten Felder, damit die Berechnung gestartet werden kann.",
+        errors,
+      };
+    }
+
+    return { ok: true };
   }
 
   // Einheitliche Berechnung mit explizitem Form (damit Skip sauber funktioniert)
   async function runCalc(withForm: FormState) {
-    const msg = validateFormForCalc(withForm);
-    if (msg) {
-      setError(msg);
+    const v = validateFormForCalc(withForm);
+    if (!v.ok) {
+      setFormErrors(v.errors);
+      setError(v.message);
       setResult(null);
-      // Wir bleiben im Förder-Schritt, damit der User es direkt korrigieren kann
       setWizardStep(4);
       requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
       return;
     }
 
+    setFormErrors({});
     setLoading(true);
     setError(null);
     setResult(null);
@@ -941,7 +976,6 @@ export default function ToolPage() {
     }
   }
 
-  // Neustart (Ergebnis-Reiter)
   function handleRestart() {
     setShowPrint(false);
     setResult(null);
@@ -959,6 +993,7 @@ export default function ToolPage() {
     setFoerderForm(DEFAULT_FOERDER_FORM);
     setForm(DEFAULT_FORM);
 
+    setFormErrors({});
     setWizardStep(0);
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
@@ -1023,7 +1058,6 @@ export default function ToolPage() {
 
   const hint = getPrintHint(role);
 
-  // Ergebnis-Step nur wenn result vorhanden
   function canGoTo(idx: number) {
     if (idx < 5) return true;
     return !!result;
@@ -1293,14 +1327,11 @@ export default function ToolPage() {
           {/* Step 0 */}
           {wizardStep === 0 && (
             <>
-              <Section
-                title="1) Ihre Situation"
-                subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile."
-              >
+              <Section title="1) Ihre Situation" subtitle="Wir bewerten je nach Rolle unterschiedliche Kostenbestandteile.">
                 <div className="grid md:grid-cols-2 gap-4">
                   <Field label="Rolle / Zielgruppe" hint="wirkt sich auf die Bewertung aus">
                     <select
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      className={inputClass(false)}
                       value={role}
                       onChange={(e) => {
                         setRole(e.target.value as Role);
@@ -1321,10 +1352,7 @@ export default function ToolPage() {
                 </div>
               </Section>
 
-              <Section
-                title="Quick-Start Presets"
-                subtitle="Wählen Sie eine typische Ausgangslage. Danach können Sie die Werte feinjustieren."
-              >
+              <Section title="Quick-Start Presets" subtitle="Wählen Sie eine typische Ausgangslage. Danach können Sie die Werte feinjustieren.">
                 <div className="grid md:grid-cols-3 gap-3">
                   {(["efh", "mfh", "gewerbe"] as PresetKey[]).map((k) => {
                     const p = PRESETS[k];
@@ -1366,9 +1394,7 @@ export default function ToolPage() {
                   {activePreset ? (
                     <>
                       <b>Preset aktiv:</b> {PRESETS[activePreset].title}.{" "}
-                      <span className="text-slate-600">
-                        Sie können jetzt jede Zahl anpassen (danach ist es „Custom“).
-                      </span>
+                      <span className="text-slate-600">Sie können jetzt jede Zahl anpassen (danach ist es „Custom“).</span>
                     </>
                   ) : (
                     <>
@@ -1384,19 +1410,19 @@ export default function ToolPage() {
           {wizardStep === 1 && (
             <Section title="2) Gebäude & Zeitraum" subtitle="Diese Angaben bestimmen die Größenordnung der Kosten.">
               <div className="grid md:grid-cols-4 gap-4">
-                <Field label="Heizwärmebedarf (kWh/Jahr)" hint="z. B. aus Abrechnung">
+                <Field label="Heizwärmebedarf (kWh/Jahr)" hint="z. B. aus Abrechnung" error={formErrors.heatDemand || null}>
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(!!formErrors.heatDemand)}
                     value={form.heatDemand}
                     onChange={(e) => updateField("heatDemand", e.target.value)}
                   />
                 </Field>
 
-                <Field label="Gebäudefläche (m²)" hint="beeinflusst CO₂/m²">
+                <Field label="Gebäudefläche (m²)" hint="beeinflusst CO₂/m²" error={formErrors.area || null}>
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(!!formErrors.area)}
                     value={form.area}
                     onChange={(e) => updateField("area", e.target.value)}
                   />
@@ -1405,16 +1431,16 @@ export default function ToolPage() {
                 <Field label="Wohneinheiten" hint="für Förderannahmen">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.units}
                     onChange={(e) => updateField("units", e.target.value)}
                   />
                 </Field>
 
-                <Field label="Betrachtungszeitraum (Jahre)" hint="typisch: 15–25">
+                <Field label="Betrachtungszeitraum (Jahre)" hint="typisch: 15–25" error={formErrors.years || null}>
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(!!formErrors.years)}
                     value={form.years}
                     onChange={(e) => updateField("years", e.target.value)}
                   />
@@ -1428,7 +1454,7 @@ export default function ToolPage() {
                 <div className="mt-3 grid md:grid-cols-2 gap-4">
                   <Field label="CO₂-Preisszenario" hint="wirkt auf CO₂-Kosten">
                     <select
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      className={inputClass(false)}
                       value={form.scenario}
                       onChange={(e) => updateField("scenario", e.target.value as ScenarioName)}
                     >
@@ -1453,7 +1479,7 @@ export default function ToolPage() {
               <div className="grid md:grid-cols-2 gap-4">
                 <Field label="Energieträger" hint="Ausgangspunkt">
                   <select
-                    className="w-full border rounded-xl px-3 py-2 bg-white"
+                    className={inputClass(false)}
                     value={form.carrierFossil}
                     onChange={(e) => updateField("carrierFossil", e.target.value as CarrierFossil)}
                   >
@@ -1467,7 +1493,7 @@ export default function ToolPage() {
                 <Field label="Wirkungsgrad (%)" hint="typisch: 80–95">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.effFossil}
                     onChange={(e) => updateField("effFossil", e.target.value)}
                   />
@@ -1476,7 +1502,7 @@ export default function ToolPage() {
                 <Field label="Preis heute (ct/kWh)" hint="aus Rechnung">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.priceFossil0}
                     onChange={(e) => updateField("priceFossil0", e.target.value)}
                   />
@@ -1485,7 +1511,7 @@ export default function ToolPage() {
                 <Field label="Preissteigerung (%/a)" hint="z. B. 2–5">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.incFossil}
                     onChange={(e) => updateField("incFossil", e.target.value)}
                   />
@@ -1494,7 +1520,7 @@ export default function ToolPage() {
                 <Field label="Wartung/Fixkosten (€/a)" hint="Schornsteinfeger etc.">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.maintFossil}
                     onChange={(e) => updateField("maintFossil", e.target.value)}
                   />
@@ -1506,7 +1532,7 @@ export default function ToolPage() {
                     <Field label="Investitionskosten fossil (€, einmalig)" hint="nur falls relevant">
                       <input
                         type="number"
-                        className="w-full border rounded-xl px-3 py-2"
+                        className={inputClass(false)}
                         value={form.investFossil}
                         onChange={(e) => updateField("investFossil", e.target.value)}
                       />
@@ -1526,7 +1552,7 @@ export default function ToolPage() {
               <div className="grid md:grid-cols-2 gap-4">
                 <Field label="Stromquelle" hint="Einfluss auf CO₂">
                   <select
-                    className="w-full border rounded-xl px-3 py-2 bg-white"
+                    className={inputClass(false)}
                     value={form.carrierHP}
                     onChange={(e) => updateField("carrierHP", e.target.value as CarrierHP)}
                   >
@@ -1535,10 +1561,10 @@ export default function ToolPage() {
                   </select>
                 </Field>
 
-                <Field label="JAZ (Jahresarbeitszahl)" hint="typisch 2,5–4,0">
+                <Field label="JAZ (Jahresarbeitszahl)" hint="typisch 2,5–4,0" error={formErrors.jaz || null}>
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(!!formErrors.jaz)}
                     value={form.jaz}
                     onChange={(e) => updateField("jaz", e.target.value)}
                   />
@@ -1547,7 +1573,7 @@ export default function ToolPage() {
                 <Field label="Strompreis heute (ct/kWh)" hint="z. B. 25–40">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.priceEl0}
                     onChange={(e) => updateField("priceEl0", e.target.value)}
                   />
@@ -1556,25 +1582,25 @@ export default function ToolPage() {
                 <Field label="Preissteigerung Strom (%/a)" hint="z. B. 1–3">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.incEl}
                     onChange={(e) => updateField("incEl", e.target.value)}
                   />
                 </Field>
 
-                <Field label="Investitionskosten WP (€, brutto)" hint="Angebot / Schätzung">
+                <Field label="Investitionskosten WP (€, brutto)" hint="Angebot / Schätzung" error={formErrors.investHP || null}>
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(!!formErrors.investHP)}
                     value={form.investHP}
                     onChange={(e) => updateField("investHP", e.target.value)}
                   />
                 </Field>
 
-                <Field label="Förderung (€, Zuschuss)" hint="wird im nächsten Schritt berechnet">
+                <Field label="Förderung (€, Zuschuss)" hint="wird im nächsten Schritt berechnet" error={formErrors.subsidyHP || null}>
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(!!formErrors.subsidyHP)}
                     value={form.subsidyHP}
                     onChange={(e) => updateField("subsidyHP", e.target.value)}
                   />
@@ -1586,7 +1612,7 @@ export default function ToolPage() {
                 <Field label="Wartung/Fixkosten (€/a)" hint="typisch geringer">
                   <input
                     type="number"
-                    className="w-full border rounded-xl px-3 py-2"
+                    className={inputClass(false)}
                     value={form.maintHP}
                     onChange={(e) => updateField("maintHP", e.target.value)}
                   />
@@ -1606,11 +1632,18 @@ export default function ToolPage() {
               subtitle="Berechnen Sie den Zuschuss und übernehmen Sie ihn in den Vergleich."
               tone="neutral"
             >
+              {/* ✅ Step 4.3: Error-Banner */}
+              {error && (
+                <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  <b>Bitte prüfen:</b> {error}
+                </div>
+              )}
+
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <Field label="Gebäudeart">
                     <select
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      className={inputClass(false)}
                       value={foerderForm.art}
                       onChange={(e) => updateFoerderField("art", e.target.value as "wohn" | "nichtwohn")}
                     >
@@ -1622,9 +1655,7 @@ export default function ToolPage() {
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                     <div className="text-xs text-slate-500">Investitionskosten Wärmepumpe (aus Schritt 4)</div>
                     <div className="text-lg font-semibold text-slate-900">{formatEuro(form.investHP, 0)}</div>
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      Diese Grundlage wird für die Förderberechnung verwendet.
-                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">Diese Grundlage wird für die Förderberechnung verwendet.</div>
                   </div>
 
                   {foerderForm.art === "wohn" ? (
@@ -1697,23 +1728,16 @@ export default function ToolPage() {
 
                       <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                         <div className="text-xs text-slate-500">Geschätzter Zuschuss</div>
-                        <div className="text-xl font-semibold text-slate-900">
-                          {formatEuro(foerderResult.foerderEuro, 0)}
-                        </div>
+                        <div className="text-xl font-semibold text-slate-900">{formatEuro(foerderResult.foerderEuro, 0)}</div>
 
                         <button
                           type="button"
                           className={
                             "w-full mt-3 px-5 py-3 rounded-2xl text-sm font-semibold " +
-                            (subsidyApplied
-                              ? "bg-emerald-600 text-white"
-                              : "bg-slate-900 text-white hover:bg-slate-800")
+                            (subsidyApplied ? "bg-emerald-600 text-white" : "bg-slate-900 text-white hover:bg-slate-800")
                           }
                           onClick={() => {
-                            setForm((prev) => ({
-                              ...prev,
-                              subsidyHP: Math.round(foerderResult.foerderEuro),
-                            }));
+                            setForm((prev) => ({ ...prev, subsidyHP: Math.round(foerderResult.foerderEuro) }));
                             setSubsidyApplied(true);
                             setResult(null);
                             setHasOpenedReport(false);
@@ -1737,9 +1761,7 @@ export default function ToolPage() {
 
                   <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                     <div className="text-sm font-semibold text-slate-900">Jetzt Gesamtergebnis berechnen</div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      Optional: Sie können auch ohne Förderberechnung fortfahren.
-                    </div>
+                    <div className="mt-1 text-xs text-slate-600">Optional: Sie können auch ohne Förderberechnung fortfahren.</div>
 
                     <button
                       type="button"
@@ -1750,7 +1772,6 @@ export default function ToolPage() {
                       {loading ? "Berechnung läuft ..." : "Gesamtergebnis berechnen"}
                     </button>
 
-                    {/* ✅ Step 4.1: Skip Förderung */}
                     <button
                       type="button"
                       disabled={loading}
@@ -1767,8 +1788,6 @@ export default function ToolPage() {
                     >
                       Förderung überspringen (Zuschuss = 0)
                     </button>
-
-                    {error && <div className="mt-2 text-sm text-red-600">{error}</div>}
                   </div>
                 </div>
               </div>
@@ -1781,8 +1800,7 @@ export default function ToolPage() {
               {!result || !perspective ? (
                 <Section title="6) Ergebnis" subtitle="Bitte zuerst im Förder-Schritt die Gesamtrechnung starten." tone="result">
                   <div className="text-slate-700">
-                    Kein Ergebnis vorhanden. Gehen Sie zurück zu Schritt 5 und klicken Sie auf{" "}
-                    <b>„Gesamtergebnis berechnen“</b>.
+                    Kein Ergebnis vorhanden. Gehen Sie zurück zu Schritt 5 und klicken Sie auf <b>„Gesamtergebnis berechnen“</b>.
                   </div>
                 </Section>
               ) : (
@@ -1799,12 +1817,8 @@ export default function ToolPage() {
                     <div className="mt-4 grid md:grid-cols-3 gap-4">
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
                         <div className="text-xs text-slate-500">Mehrinvestition Wärmepumpe (netto)</div>
-                        <div className="text-xl font-semibold text-slate-900 mt-1">
-                          {formatEuro(result.extraInvest, 0)}
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-1">
-                          Netto = WP Invest minus Förderung (vereinfacht)
-                        </div>
+                        <div className="text-xl font-semibold text-slate-900 mt-1">{formatEuro(result.extraInvest, 0)}</div>
+                        <div className="text-[11px] text-slate-500 mt-1">Netto = WP Invest minus Förderung (vereinfacht)</div>
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -1823,15 +1837,10 @@ export default function ToolPage() {
                         <div
                           className={
                             "text-xl font-semibold mt-1 " +
-                            (perspective.savings > 0
-                              ? "text-emerald-700"
-                              : perspective.savings < 0
-                              ? "text-rose-700"
-                              : "text-slate-900")
+                            (perspective.savings > 0 ? "text-emerald-700" : perspective.savings < 0 ? "text-rose-700" : "text-slate-900")
                           }
                         >
-                          {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
-                            formatEuro(Math.abs(perspective.savings), 0)}
+                          {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") + formatEuro(Math.abs(perspective.savings), 0)}
                         </div>
                       </div>
                     </div>
@@ -1857,7 +1866,6 @@ export default function ToolPage() {
                           type="button"
                           className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
                           onClick={handleRestart}
-                          title={hasOpenedReport ? "Neustart nach Bericht" : "Neustart des Tools"}
                         >
                           Neustart
                         </button>
@@ -1874,9 +1882,7 @@ export default function ToolPage() {
                   <Section title="Verlauf & Vergleich" subtitle="Grafiken sind auch im Bericht druckstabil." tone="result">
                     <div className="grid md:grid-cols-2 gap-6">
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                        <div className="text-xs text-slate-500 mb-2">
-                          Kumulierte Kosten ({perspective.label})
-                        </div>
+                        <div className="text-xs text-slate-500 mb-2">Kumulierte Kosten ({perspective.label})</div>
                         <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
