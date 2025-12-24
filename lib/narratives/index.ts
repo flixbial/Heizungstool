@@ -1,18 +1,12 @@
-import { NarrativeInput } from "./types";
+import type { NarrativeBlock, NarrativeInput, Role } from "./types";
 import { eigentuemerNarrative } from "./eigentuemer";
 import { vermieterNarrative } from "./vermieter";
 import { mieterNarrative } from "./mieter";
 
-export function getNarrative(
-  role: "eigentuemer" | "vermieter" | "mieter",
-  input: NarrativeInput
-) {
-  switch (role) {
-    case "vermieter":
-      return vermieterNarrative(input);
-    case "mieter":
-      return mieterNarrative(input);
-    default:
-      return eigentuemerNarrative(input);
-  }
+export type { NarrativeBlock, NarrativeInput, Role } from "./types";
+
+export function getNarrative(role: Role, input: NarrativeInput): NarrativeBlock {
+  if (role === "vermieter") return vermieterNarrative(input);
+  if (role === "mieter") return mieterNarrative(input);
+  return eigentuemerNarrative(input);
 }
