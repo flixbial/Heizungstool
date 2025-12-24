@@ -129,6 +129,7 @@ function isValidationError(v: ValidationResult): v is Extract<ValidationResult, 
   return v.ok === false;
 }
 
+// ===== Defaults (für Neustart) =====
 const DEFAULT_FORM: FormState = {
   heatDemand: 30000,
   area: 500,
@@ -207,6 +208,7 @@ function inputClass(hasError?: boolean) {
   );
 }
 
+/** Premium UI helper */
 function Section({
   title,
   subtitle,
@@ -261,6 +263,7 @@ function Field({
   );
 }
 
+/** Wizard UI */
 function WizardHeader({
   steps,
   current,
@@ -324,6 +327,8 @@ function WizardHeader({
     </div>
   );
 }
+
+// ===== Druckstabile SVG-Grafiken =====
 
 function buildLinePath(values: number[], w: number, h: number, pad: number, maxY: number) {
   if (!values || values.length === 0) return "";
@@ -490,6 +495,8 @@ function MiniTotalBarChart({
   );
 }
 
+// ===== Print Modal (Portal an body) =====
+
 function PrintModal({
   open,
   onClose,
@@ -631,6 +638,25 @@ function PrintModal({
                 ))}
               </ul>
             </div>
+
+            {/* Sprint 4.5: Beratungskomponente im Bericht */}
+            <div className="report-next">
+              <div className="report-h3">Beratungs-Highlights</div>
+              <ul className="report-ul">
+                {narrative.highlights.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="report-next">
+              <div className="report-h3">Beratungs-Leitfaden</div>
+              <ol className="report-ul" style={{ listStyleType: "decimal" }}>
+                {narrative.advisorSteps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ol>
+            </div>
           </div>
 
           <div className="print-chunk">
@@ -731,6 +757,7 @@ export default function ToolPage() {
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
+  // ===== Quick-Start Presets =====
   type PresetKey = "efh" | "mfh" | "gewerbe";
   const PRESETS: Record<
     PresetKey,
@@ -815,7 +842,9 @@ export default function ToolPage() {
 
   const [activePreset, setActivePreset] = useState<PresetKey | null>(null);
 
+  // ===== Wizard State =====
   const [wizardStep, setWizardStep] = useState<number>(0);
+
   const wizardSteps = useMemo(
     () => [
       { title: "Situation & Quick-Start", short: "Start" },
@@ -879,6 +908,7 @@ export default function ToolPage() {
     setFoerderForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  // ===== Mini-Validierung + Field Errors =====
   function validateFormForCalc(f: FormState): ValidationResult {
     const errors: FormErrors = {};
 
@@ -900,8 +930,10 @@ export default function ToolPage() {
     return { ok: true };
   }
 
+  // Einheitliche Berechnung mit explizitem Form (damit Skip sauber funktioniert)
   async function runCalc(withForm: FormState) {
     const v = validateFormForCalc(withForm);
+
     if (isValidationError(v)) {
       setFormErrors(v.errors);
       setError(v.message);
@@ -1031,6 +1063,18 @@ export default function ToolPage() {
       note: "Eigentümer trägt Investition, Energie, Wartung und 100% der CO₂-Kosten.",
     };
   }, [result, role]);
+
+  // ✅ Sprint 4.5: Narrative einmal sauber fürs Ergebnis berechnen (statt getNarrative() im JSX mehrfach)
+  const narrativeForUI = useMemo(() => {
+    if (!perspective) return null;
+    const years = form.years ?? 20;
+    return getNarrative(role, {
+      years,
+      savings: perspective.savings,
+      totalFossil: perspective.totalFossil,
+      payback: perspective.payback,
+    });
+  }, [role, form.years, perspective]);
 
   const chartData = useMemo(() => {
     if (!result || !perspective) return [];
@@ -1801,7 +1845,7 @@ export default function ToolPage() {
 
           {wizardStep === 5 && (
             <>
-              {!result || !perspective ? (
+              {!result || !perspective || !narrativeForUI ? (
                 <Section title="6) Ergebnis" subtitle="Bitte zuerst im Förder-Schritt die Gesamtrechnung starten." tone="result">
                   <div className="text-slate-700">
                     Kein Ergebnis vorhanden. Gehen Sie zurück zu Schritt 5 und klicken Sie auf{" "}
@@ -1856,6 +1900,27 @@ export default function ToolPage() {
                           {(perspective.savings >= 0 ? "Vorteil: " : "Nachteil: ") +
                             formatEuro(Math.abs(perspective.savings), 0)}
                         </div>
+                      </div>
+                    </div>
+
+                    {/* ✅ Sprint 4.5: Beratungs-Highlights + Leitfaden */}
+                    <div className="mt-5 grid md:grid-cols-2 gap-4">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-slate-900">Beratungs-Highlights</div>
+                        <ul className="mt-2 list-disc ml-5 text-sm text-slate-700 space-y-1">
+                          {narrativeForUI.highlights.map((h, i) => (
+                            <li key={i}>{h}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-slate-900">Beratungs-Leitfaden</div>
+                        <ol className="mt-2 list-decimal ml-5 text-sm text-slate-700 space-y-1">
+                          {narrativeForUI.advisorSteps.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ol>
                       </div>
                     </div>
 
