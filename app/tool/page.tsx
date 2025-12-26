@@ -548,7 +548,7 @@ function PrintModal({
       savings: result.savingsOwner,
       totalFossil: result.totalOwnerFossil,
       payback: result.extraInvest <= 0 ? null : result.paybackOwner,
-    };
+      };
   }, [role, form.years, result]);
 
   const narrative = useMemo(() => getNarrative(role, narrativeInput), [role, narrativeInput]);
@@ -576,13 +576,19 @@ function PrintModal({
               type="button"
               className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
               onClick={async () => {
-                const img = document.querySelector<HTMLImageElement>("#printArea img");
-                if (img && !img.complete) {
-                  await new Promise<void>((resolve) => {
-                    img.onload = () => resolve();
-                    img.onerror = () => resolve();
-                  });
-                }
+                // ✅ Sprint 4.7 Step 1: Auf ALLE Bilder warten (Logo + ggf. weitere)
+                const imgs = Array.from(document.querySelectorAll<HTMLImageElement>("#printArea img"));
+                await Promise.all(
+                  imgs.map(
+                    (img) =>
+                      new Promise<void>((resolve) => {
+                        if (img.complete) return resolve();
+                        img.onload = () => resolve();
+                        img.onerror = () => resolve();
+                      })
+                  )
+                );
+
                 requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
               }}
             >
@@ -600,6 +606,7 @@ function PrintModal({
 
         <div id="printArea" className="report">
           <div className="report-header print-avoid-break">
+            {/* ✅ Pfad: public/logo.png */}
             <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
             <div className="report-head-right">
               <div className="report-title">Heizungs-Vergleich – Bericht</div>
@@ -871,7 +878,7 @@ export default function ToolPage() {
   const [showPrint, setShowPrint] = useState(false);
   const [hasOpenedReport, setHasOpenedReport] = useState(false);
 
-  // ✅ Sprint 4.6: nach Druckdialog im Ergebnis-Tab Neustart-Prompt anzeigen
+  // ✅ nach Druckdialog im Ergebnis-Tab Neustart-Prompt anzeigen
   const [afterPrintPrompt, setAfterPrintPrompt] = useState(false);
 
   function applyPreset(key: PresetKey) {
@@ -1070,7 +1077,6 @@ export default function ToolPage() {
     };
   }, [result, role]);
 
-  // ✅ Sprint 4.5: Narrative einmal sauber fürs Ergebnis berechnen (statt getNarrative() im JSX mehrfach)
   const narrativeForUI = useMemo(() => {
     if (!perspective) return null;
     const years = form.years ?? 20;
@@ -1122,10 +1128,11 @@ export default function ToolPage() {
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
-  // ✅ Sprint 4.6: afterprint -> Prompt im Ergebnis-Tab
+  // ✅ Sprint 4.7 Step 3: afterprint -> Popup schließen + Prompt im Ergebnis-Tab
   useEffect(() => {
     const handler = () => {
       if (hasOpenedReport) {
+        setShowPrint(false);
         setAfterPrintPrompt(true);
       }
     };
@@ -1279,6 +1286,14 @@ export default function ToolPage() {
             display: none !important;
           }
 
+          /* ✅ Sprint 4.7 Step 2: Overlay/Modal vollständig print-neutral */
+          #print-portal-root .print-modal-overlay {
+            position: static !important;
+            inset: auto !important;
+            background: transparent !important;
+            padding: 0 !important;
+          }
+
           #print-portal-root {
             display: block !important;
             position: static !important;
@@ -1296,10 +1311,12 @@ export default function ToolPage() {
             border: 0 !important;
             box-shadow: none !important;
             border-radius: 0 !important;
+            overflow: visible !important;
           }
 
           #printArea {
             overflow: visible !important;
+            height: auto !important;
           }
 
           body {
@@ -1923,7 +1940,6 @@ export default function ToolPage() {
                       </div>
                     </div>
 
-                    {/* ✅ Sprint 4.5: Beratungs-Highlights + Leitfaden */}
                     <div className="mt-5 grid md:grid-cols-2 gap-4">
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
                         <div className="text-sm font-semibold text-slate-900">Beratungs-Highlights</div>
@@ -1978,7 +1994,6 @@ export default function ToolPage() {
                       </div>
                     )}
 
-                    {/* ✅ Sprint 4.6: Prompt nach Druck */}
                     {afterPrintPrompt && (
                       <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                         <div className="text-sm font-semibold text-emerald-900">Druck abgeschlossen?</div>
