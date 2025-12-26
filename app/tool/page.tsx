@@ -526,33 +526,42 @@ function PrintModal({
       ? { fossil: result.cumTenantFossil, hp: result.cumTenantHP }
       : { fossil: result.cumOwnerFossil, hp: result.cumOwnerHP };
 
-  const narrativeInput: NarrativeInput = useMemo(() => {
+  const reportInput: ReportTextInput = useMemo(() => {
     const years = form.years ?? 20;
+
     if (role === "vermieter") {
       return {
         years,
         savings: result.savingsLandlord,
         totalFossil: result.totalLandlordFossil,
         payback: result.extraInvest <= 0 ? null : result.paybackLandlord,
+        extraInvest: result.extraInvest,
+        subsidyEuro: form.subsidyHP ?? 0,
       };
     }
+
     if (role === "mieter") {
       return {
         years,
         savings: result.savingsTenant,
         totalFossil: result.totalTenantFossil,
         payback: null,
+        extraInvest: 0,
+        subsidyEuro: 0,
       };
     }
+
     return {
       years,
       savings: result.savingsOwner,
       totalFossil: result.totalOwnerFossil,
       payback: result.extraInvest <= 0 ? null : result.paybackOwner,
-      };
-  }, [role, form.years, result]);
+      extraInvest: result.extraInvest,
+      subsidyEuro: form.subsidyHP ?? 0,
+    };
+  }, [role, form.years, form.subsidyHP, result]);
 
-  const narrative = useMemo(() => getNarrative(role, narrativeInput), [role, narrativeInput]);
+  const reportText = useMemo(() => getReportText(role, reportInput), [role, reportInput]);
 
   useEffect(() => {
     if (!open) return;
@@ -577,7 +586,7 @@ function PrintModal({
               type="button"
               className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
               onClick={async () => {
-                // ✅ Sprint 4.7 Step 1: Auf ALLE Bilder warten (Logo + ggf. weitere)
+                // Auf ALLE Bilder warten (Logo etc.)
                 const imgs = Array.from(document.querySelectorAll<HTMLImageElement>("#printArea img"));
                 await Promise.all(
                   imgs.map(
@@ -607,7 +616,6 @@ function PrintModal({
 
         <div id="printArea" className="report">
           <div className="report-header print-avoid-break">
-            {/* ✅ Pfad: public/logo.png */}
             <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
             <div className="report-head-right">
               <div className="report-title">Heizungs-Vergleich – Bericht</div>
@@ -627,43 +635,33 @@ function PrintModal({
           </div>
 
           <div className="report-card print-avoid-break">
-            <div className="report-h2">{narrative.headline}</div>
+            <div className="report-h2">{reportText.headline}</div>
 
             <div className="report-summary">
               <div className="report-summary-label">Kurzfazit</div>
-              <div className="report-summary-text">{narrative.short}</div>
-            </div>
-
-            <div className="report-detail">
-              <div className="report-detail-label">Einordnung</div>
-              <div className="report-detail-text">{narrative.detail}</div>
-            </div>
-
-            <div className="report-next">
-              <div className="report-h3">Nächste Schritte</div>
-              <ul className="report-ul">
-                {narrative.nextSteps.map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
+              <div className="report-summary-text">{reportText.intro}</div>
             </div>
 
             <div className="report-next">
               <div className="report-h3">Beratungs-Highlights</div>
               <ul className="report-ul">
-                {narrative.highlights.map((s, i) => (
+                {reportText.bullets.map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
               </ul>
             </div>
 
             <div className="report-next">
-              <div className="report-h3">Beratungs-Leitfaden</div>
-              <ol className="report-ul" style={{ listStyleType: "decimal" }}>
-                {narrative.advisorSteps.map((s, i) => (
+              <div className="report-h3">Nächste Schritte</div>
+              <ul className="report-ul">
+                {reportText.recommendations.map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
-              </ol>
+              </ul>
+            </div>
+
+            <div className="report-muted" style={{ marginTop: 10 }}>
+              {reportText.disclaimer}
             </div>
           </div>
 
