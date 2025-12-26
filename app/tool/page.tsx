@@ -456,6 +456,7 @@ function MiniTotalBarChart({
         <line x1={pad} x2={w - pad} y1={yBase} y2={yBase} stroke="#e2e8f0" />
         <line x1={pad} x2={pad} y1={pad} y2={yBase} stroke="#e2e8f0" />
 
+        {/* Farben identisch zu Liniendiagramm */}
         <rect x={x1} y={yBase - fH} width={barW} height={fH} fill="#ef4444" />
         <rect x={x2} y={yBase - hH} width={barW} height={hH} fill="#2563eb" />
 
@@ -639,7 +640,6 @@ function PrintModal({
               </ul>
             </div>
 
-            {/* Sprint 4.5: Beratungskomponente im Bericht */}
             <div className="report-next">
               <div className="report-h3">Beratungs-Highlights</div>
               <ul className="report-ul">
@@ -871,6 +871,9 @@ export default function ToolPage() {
   const [showPrint, setShowPrint] = useState(false);
   const [hasOpenedReport, setHasOpenedReport] = useState(false);
 
+  // ✅ Sprint 4.6: nach Druckdialog im Ergebnis-Tab Neustart-Prompt anzeigen
+  const [afterPrintPrompt, setAfterPrintPrompt] = useState(false);
+
   function applyPreset(key: PresetKey) {
     const preset = PRESETS[key];
     setForm((prev) => ({ ...prev, ...preset.patch }));
@@ -884,6 +887,7 @@ export default function ToolPage() {
     setFoerderError(null);
     setSubsidyApplied(false);
     setHasOpenedReport(false);
+    setAfterPrintPrompt(false);
   }
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
@@ -902,6 +906,7 @@ export default function ToolPage() {
     }));
     setResult(null);
     setHasOpenedReport(false);
+    setAfterPrintPrompt(false);
   }
 
   function updateFoerderField<K extends keyof FoerderForm>(key: K, value: FoerderForm[K]) {
@@ -1012,6 +1017,7 @@ export default function ToolPage() {
 
     setSubsidyApplied(false);
     setHasOpenedReport(false);
+    setAfterPrintPrompt(false);
 
     setActivePreset(null);
     setRole("eigentuemer");
@@ -1115,6 +1121,17 @@ export default function ToolPage() {
     setWizardStep((s) => Math.max(0, s - 1));
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
+
+  // ✅ Sprint 4.6: afterprint -> Prompt im Ergebnis-Tab
+  useEffect(() => {
+    const handler = () => {
+      if (hasOpenedReport) {
+        setAfterPrintPrompt(true);
+      }
+    };
+    window.addEventListener("afterprint", handler);
+    return () => window.removeEventListener("afterprint", handler);
+  }, [hasOpenedReport]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10 text-sm">
@@ -1373,6 +1390,7 @@ export default function ToolPage() {
                         setRole(e.target.value as Role);
                         setResult(null);
                         setHasOpenedReport(false);
+                        setAfterPrintPrompt(false);
                       }}
                     >
                       <option value="eigentuemer">Eigentümer (Selbstnutzer)</option>
@@ -1786,6 +1804,7 @@ export default function ToolPage() {
                             setSubsidyApplied(true);
                             setResult(null);
                             setHasOpenedReport(false);
+                            setAfterPrintPrompt(false);
                           }}
                         >
                           {subsidyApplied ? "Zuschuss übernommen ✓" : "Zuschuss übernehmen"}
@@ -1831,6 +1850,7 @@ export default function ToolPage() {
                         setFoerderResult(null);
                         setSubsidyApplied(false);
                         setHasOpenedReport(false);
+                        setAfterPrintPrompt(false);
                         await runCalc(nextForm);
                       }}
                       title="Berechnung ohne Zuschuss durchführen"
@@ -1936,6 +1956,7 @@ export default function ToolPage() {
                           onClick={() => {
                             setShowPrint(true);
                             setHasOpenedReport(true);
+                            setAfterPrintPrompt(false);
                           }}
                         >
                           Bericht erstellen & drucken
@@ -1954,6 +1975,32 @@ export default function ToolPage() {
                     {hasOpenedReport && (
                       <div className="mt-2 text-[11px] text-slate-500">
                         Hinweis: Neustart setzt alle Eingaben und Ergebnisse zurück und startet den Wizard neu.
+                      </div>
+                    )}
+
+                    {/* ✅ Sprint 4.6: Prompt nach Druck */}
+                    {afterPrintPrompt && (
+                      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                        <div className="text-sm font-semibold text-emerald-900">Druck abgeschlossen?</div>
+                        <div className="mt-1 text-xs text-emerald-900/80">
+                          Wenn Sie eine neue Beratung starten möchten, können Sie jetzt alle Eingaben zurücksetzen.
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800"
+                            onClick={handleRestart}
+                          >
+                            Neustart
+                          </button>
+                          <button
+                            type="button"
+                            className="px-4 py-2 rounded-xl border border-emerald-200 bg-white text-emerald-900 text-sm font-semibold hover:bg-emerald-50"
+                            onClick={() => setAfterPrintPrompt(false)}
+                          >
+                            Später
+                          </button>
+                        </div>
                       </div>
                     )}
                   </Section>
