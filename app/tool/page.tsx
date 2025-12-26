@@ -14,8 +14,9 @@ import {
   Cell,
 } from "recharts";
 
-import { getNarrative } from "@/lib/narratives";
-import type { NarrativeInput } from "@/lib/narratives/types";
+import { getNarrative } from "@/lib/narratives"; // bleibt fürs UI (Highlights/Leitfaden) wie bisher
+import { getReportText } from "@/lib/reportText";
+import type { ReportTextInput } from "@/lib/reportText";
 
 type ScenarioName = "Sehr niedrig" | "Niedrig" | "Experten" | "Hoch" | "Sehr hoch";
 type CarrierFossil = "Erdgas" | "Flüssiggas" | "Heizöl" | "Pellets";
