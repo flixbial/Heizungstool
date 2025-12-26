@@ -396,7 +396,7 @@ function MiniCostChart({
         Kumulierte Kosten im Zeitverlauf
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg">
+      <svg width="100%" viewBox={`0 0 ${w} 0 ${h}`.replace(" 0 ", " ")} xmlns="http://www.w3.org/2000/svg">
         <rect x="0" y="0" width={w} height={h} fill="#ffffff" />
         <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="none" stroke="#e2e8f0" />
 
@@ -518,6 +518,208 @@ function MiniTotalBarChart({
   );
 }
 
+/* ============================================================
+   Sprint 4.9 Step 1: Annahmen-Checkliste im Bericht
+   ============================================================ */
+
+type CheckStatus = "ok" | "warn" | "info";
+
+type AssumptionCheckItem = {
+  label: string;
+  status: CheckStatus;
+  detail: string;
+};
+
+function statusBadge(status: CheckStatus) {
+  if (status === "ok") return { bg: "#dcfce7", fg: "#166534", text: "OK" };
+  if (status === "warn") return { bg: "#fee2e2", fg: "#991b1b", text: "Prüfen" };
+  return { bg: "#e2e8f0", fg: "#0f172a", text: "Hinweis" };
+}
+
+function buildAssumptionChecklist(role: Role, form: FormState, result: CalcResult): AssumptionCheckItem[] {
+  const items: AssumptionCheckItem[] = [];
+
+  // Strompreis (ct/kWh)
+  const el = Number(form.priceEl0 || 0);
+  if (el <= 0) {
+    items.push({ label: "Strompreis", status: "warn", detail: "Kein gültiger Strompreis angegeben." });
+  } else if (el < 20) {
+    items.push({
+      label: "Strompreis",
+      status: "info",
+      detail: `${formatCt(el)} ist eher niedrig – prüfen (z. B. Wärmepumpentarif).`,
+    });
+  } else if (el > 50) {
+    items.push({
+      label: "Strompreis",
+      status: "warn",
+      detail: `${formatCt(el)} ist sehr hoch – Ergebnis ist stark sensitiv.`,
+    });
+  } else {
+    items.push({ label: "Strompreis", status: "ok", detail: `${formatCt(el)} im üblichen Bereich.` });
+  }
+
+  // Fossiler Preis (ct/kWh)
+  const fos = Number(form.priceFossil0 || 0);
+  if (fos <= 0) {
+    items.push({ label: "Fossiler Energiepreis", status: "warn", detail: "Kein gültiger fossiler Energiepreis angegeben." });
+  } else if (fos < 6) {
+    items.push({
+      label: "Fossiler Energiepreis",
+      status: "info",
+      detail: `${formatCt(fos)} ist eher niedrig – prüfen (Sondertarif/Altvertrag?).`,
+    });
+  } else if (fos > 20) {
+    items.push({
+      label: "Fossiler Energiepreis",
+      status: "info",
+      detail: `${formatCt(fos)} ist hoch – fossil wird schneller teurer.`,
+    });
+  } else {
+    items.push({ label: "Fossiler Energiepreis", status: "ok", detail: `${formatCt(fos)} plausibel.` });
+  }
+
+  // JAZ
+  const jaz = Number(form.jaz || 0);
+  if (jaz <= 0) {
+    items.push({ label: "JAZ (Effizienz)", status: "warn", detail: "Keine gültige JAZ angegeben." });
+  } else if (jaz < 2.5) {
+    items.push({
+      label: "JAZ (Effizienz)",
+      status: "warn",
+      detail: `JAZ ${jaz} ist niedrig – Wirtschaftlichkeit häufig kritisch. Heizflächen/Vorlauftemperatur prüfen.`,
+    });
+  } else if (jaz < 3.0) {
+    items.push({
+      label: "JAZ (Effizienz)",
+      status: "info",
+      detail: `JAZ ${jaz} ist ok – Ausführung/Regelung entscheidet über die Praxiswerte.`,
+    });
+  } else {
+    items.push({
+      label: "JAZ (Effizienz)",
+      status: "ok",
+      detail: `JAZ ${jaz} ist gut – sofern Vorlauftemperaturen realistisch sind.`,
+    });
+  }
+
+  // Invest WP / Förderung
+  const investWP = Number(form.investHP || 0);
+  const subsidy = Number(form.subsidyHP || 0);
+
+  if (investWP <= 0) {
+    items.push({
+      label: "Investition Wärmepumpe",
+      status: "warn",
+      detail: "Investitionskosten fehlen oder sind 0 – bitte Angebot/Schätzung eintragen.",
+    });
+  } else if (investWP < 15000) {
+    items.push({
+      label: "Investition Wärmepumpe",
+      status: "info",
+      detail: `${formatEuro(investWP, 0)} wirkt sehr niedrig – prüfen (Umfang, WW, Nebenarbeiten).`,
+    });
+  } else if (investWP > 200000) {
+    items.push({
+      label: "Investition Wärmepumpe",
+      status: "info",
+      detail: `${formatEuro(investWP, 0)} ist sehr hoch – prüfen (Sanierungsumfang, Großanlage).`,
+    });
+  } else {
+    items.push({
+      label: "Investition Wärmepumpe",
+      status: "ok",
+      detail: `${formatEuro(investWP, 0)} plausibel (objektabhängig).`,
+    });
+  }
+
+  if (role !== "mieter") {
+    if (subsidy <= 0) {
+      items.push({
+        label: "Förderung",
+        status: "info",
+        detail: "Förderung ist 0 €. Prüfen, ob Fördermöglichkeiten bestehen.",
+      });
+    } else if (subsidy > investWP * 0.6) {
+      items.push({
+        label: "Förderung",
+        status: "info",
+        detail: `${formatEuro(subsidy, 0)} ist sehr hoch – Fördergrenzen/Nachweise prüfen.`,
+      });
+    } else {
+      items.push({ label: "Förderung", status: "ok", detail: `${formatEuro(subsidy, 0)} übernommen.` });
+    }
+  } else {
+    items.push({
+      label: "Förderung",
+      status: "info",
+      detail: "Mieterperspektive: Förderung wird nicht bewertet (Investition liegt beim Eigentümer/Vermieter).",
+    });
+  }
+
+  // Ergebnis-Sensitivität / „knapp“
+  const years = Number(form.years || 20);
+  const savings =
+    role === "vermieter" ? result.savingsLandlord : role === "mieter" ? result.savingsTenant : result.savingsOwner;
+
+  const fossilTotal =
+    role === "vermieter"
+      ? result.totalLandlordFossil
+      : role === "mieter"
+      ? result.totalTenantFossil
+      : result.totalOwnerFossil;
+
+  const rel = fossilTotal !== 0 ? Math.abs(savings) / Math.abs(fossilTotal) : 0;
+
+  if (rel < 0.05) {
+    items.push({
+      label: "Ergebnis ist knapp",
+      status: "warn",
+      detail: `Abweichung < 5% der Gesamtkosten über ${years} Jahre. Kleine Änderungen (Strompreis/JAZ/Invest) können die Empfehlung drehen.`,
+    });
+  } else {
+    items.push({
+      label: "Ergebnis-Stabilität",
+      status: "ok",
+      detail: `Abweichung liegt bei ca. ${(rel * 100).toFixed(1)}% der Gesamtkosten – trotzdem ggf. Sensitivitäten prüfen.`,
+    });
+  }
+
+  // Amortisation-Hinweis
+  if (role !== "mieter") {
+    const payback = role === "vermieter" ? result.paybackLandlord : result.paybackOwner;
+
+    if (result.extraInvest > 0 && !payback) {
+      items.push({
+        label: "Amortisation",
+        status: "info",
+        detail: `Keine vollständige Amortisation im Zeitraum (${years} Jahre). Prüfe Förderung/JAZ/Strompreis/Invest.`,
+      });
+    } else if (result.extraInvest <= 0) {
+      items.push({
+        label: "Amortisation",
+        status: "ok",
+        detail: "Keine Mehrinvestition (netto) – Amortisation ist damit nicht ausschlaggebend.",
+      });
+    } else {
+      items.push({
+        label: "Amortisation",
+        status: "ok",
+        detail: `Amortisation voraussichtlich im Jahr ${payback}.`,
+      });
+    }
+  }
+
+  // Immer sinnvoller Praxis-Check
+  items.push({
+    label: "Technische Praxisprüfung",
+    status: "warn",
+    detail: "Vorlauftemperaturen / Heizflächen / hydraulischer Abgleich / Warmwasserbereitung prüfen – bestimmt die reale JAZ.",
+  });
+
+  return items;
+}
+
 // ===== Print Modal (Portal an body) =====
 
 function PrintModal({
@@ -591,6 +793,9 @@ function PrintModal({
     [role, reportInput, variant]
   );
 
+  // ✅ Sprint 4.9 Step 1
+  const checklist = useMemo(() => buildAssumptionChecklist(role, form, result), [role, form, result]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -659,16 +864,14 @@ function PrintModal({
                 </b>
                 <br />
                 Umfang:{" "}
-                <b>
-                  {variant === "kurz" ? "Kurz" : variant === "standard" ? "Standard" : "Detailliert"}
-                </b>
+                <b>{variant === "kurz" ? "Kurz" : variant === "standard" ? "Standard" : "Detailliert"}</b>
                 <br />
                 Datum: {new Date().toLocaleString("de-DE")}
               </div>
             </div>
           </div>
 
-          {/* ✅ Sprint 4.8 Step 3: Kundendaten/Objekt (optional, nur wenn befüllt) */}
+          {/* ✅ Kundendaten/Objekt (optional, nur wenn befüllt) */}
           {(customer.customerName ||
             customer.objectName ||
             customer.address ||
@@ -827,6 +1030,42 @@ function PrintModal({
             <div className="report-muted" style={{ marginTop: 10 }}>
               Hinweis: Vereinfachtes Modell. Alle Angaben ohne Gewähr; maßgeblich sind Angebote, reale Anlagenwerte und aktuelle
               Förderbedingungen.
+            </div>
+
+            {/* ✅ Sprint 4.9 Step 1: Annahmen-Checkliste */}
+            <div className="report-section print-avoid-break" style={{ marginTop: 14 }}>
+              <div className="report-h3">Annahmen-Checkliste</div>
+              <div className="report-muted" style={{ marginTop: 4 }}>
+                Diese Hinweise helfen, die Ergebnisqualität in der Beratung schnell einzuordnen.
+              </div>
+
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                {checklist.map((it, idx) => {
+                  const b = statusBadge(it.status);
+                  return (
+                    <div key={idx} className="report-card" style={{ padding: 10 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                        <div style={{ fontWeight: 800, fontSize: 12 }}>{it.label}</div>
+                        <span
+                          style={{
+                            background: b.bg,
+                            color: b.fg,
+                            fontWeight: 800,
+                            fontSize: 11,
+                            padding: "3px 8px",
+                            borderRadius: 999,
+                            border: "1px solid #e2e8f0",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {b.text}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: "#0f172a", lineHeight: 1.4 }}>{it.detail}</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -988,8 +1227,6 @@ export default function ToolPage() {
     setSubsidyApplied(false);
     setHasOpenedReport(false);
     setAfterPrintPrompt(false);
-
-    // Variante bleibt bewusst wie gewählt (kannst du auch resetten, wenn du willst)
   }
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
@@ -1127,7 +1364,6 @@ export default function ToolPage() {
     setForm(DEFAULT_FORM);
     setCustomer(DEFAULT_CUSTOMER);
 
-    // ✅ Step 4: Berichtsumfang zurücksetzen
     setReportVariant("standard");
 
     setFormErrors({});
@@ -1517,13 +1753,12 @@ export default function ToolPage() {
                   </Field>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
-                    <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
+                    <div className="text-sm font-semibold text-slate-900">{getPrintHint(role).title}</div>
+                    <div className="mt-1 text-xs text-slate-600">{getPrintHint(role).text}</div>
                   </div>
                 </div>
               </Section>
 
-              {/* ✅ Sprint 4.8 Step 3 */}
               <Section
                 title="Kundendaten & Objekt (optional)"
                 subtitle="Diese Angaben erscheinen im gedruckten Bericht. Wenn leer, wird nichts angezeigt."
@@ -1591,7 +1826,7 @@ export default function ToolPage() {
                 subtitle="Wählen Sie eine typische Ausgangslage. Danach können Sie die Werte feinjustieren."
               >
                 <div className="grid md:grid-cols-3 gap-3">
-                  {(["efh", "mfh", "gewerbe"] as PresetKey[]).map((k) => {
+                  {(["efh", "mfh", "gewerbe"] as ("efh" | "mfh" | "gewerbe")[]).map((k) => {
                     const p = PRESETS[k];
                     const active = activePreset === k;
                     return (
