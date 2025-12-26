@@ -2,20 +2,23 @@ export type Role = "eigentuemer" | "vermieter" | "mieter";
 
 export type ReportTone = "positive" | "neutral" | "negative";
 
+/** Auswahl im UI */
+export type ReportVariant = "kurz" | "standard" | "detailliert";
+
 export interface ReportTextInput {
   years: number;
-  savings: number; // >0 Vorteil WP, <0 Nachteil
+  savings: number;
   totalFossil: number;
-  payback: number | null; // Jahre (nur wenn sinnvoll)
+  payback: number | null;
   extraInvest?: number;
   subsidyEuro?: number;
 }
 
 export interface ReportText {
   headline: string;
-  intro: string; // 1–2 Sätze
-  bullets: string[]; // Highlights
-  recommendations: string[]; // Next steps
+  intro: string;
+  bullets: string[];
+  recommendations: string[];
   disclaimer: string;
   tone: ReportTone;
 }
