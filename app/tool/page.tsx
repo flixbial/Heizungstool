@@ -23,6 +23,9 @@ type CarrierFossil = "Erdgas" | "Flüssiggas" | "Heizöl" | "Pellets";
 type CarrierHP = "Strom Stromix" | "Strom Erneuerbar";
 type Role = "eigentuemer" | "vermieter" | "mieter";
 
+/** Sprint 4.8 Step 4 */
+type ReportVariant = "kurz" | "standard" | "detailliert";
+
 interface CustomerInfo {
   customerName: string;
   objectName: string;
@@ -524,6 +527,7 @@ function PrintModal({
   form,
   result,
   customer,
+  variant,
 }: {
   open: boolean;
   onClose: () => void;
@@ -531,6 +535,7 @@ function PrintModal({
   form: FormState;
   result: CalcResult;
   customer: CustomerInfo;
+  variant: ReportVariant;
 }) {
   const totals =
     role === "vermieter"
@@ -581,7 +586,10 @@ function PrintModal({
     };
   }, [role, form.years, form.subsidyHP, result]);
 
-  const reportText = useMemo(() => getReportText(role, reportInput), [role, reportInput]);
+  const reportText = useMemo(
+    () => getReportText(role, reportInput, variant),
+    [role, reportInput, variant]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -648,6 +656,11 @@ function PrintModal({
                     : role === "vermieter"
                     ? "Vermieter"
                     : "Mieter"}
+                </b>
+                <br />
+                Umfang:{" "}
+                <b>
+                  {variant === "kurz" ? "Kurz" : variant === "standard" ? "Standard" : "Detailliert"}
                 </b>
                 <br />
                 Datum: {new Date().toLocaleString("de-DE")}
@@ -838,6 +851,9 @@ export default function ToolPage() {
     setCustomer((prev) => ({ ...prev, [key]: value }));
   }
 
+  /** Sprint 4.8 Step 4 */
+  const [reportVariant, setReportVariant] = useState<ReportVariant>("standard");
+
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
@@ -972,6 +988,8 @@ export default function ToolPage() {
     setSubsidyApplied(false);
     setHasOpenedReport(false);
     setAfterPrintPrompt(false);
+
+    // Variante bleibt bewusst wie gewählt (kannst du auch resetten, wenn du willst)
   }
 
   function updateField<K extends keyof FormState>(key: K, value: string) {
@@ -1108,6 +1126,9 @@ export default function ToolPage() {
     setFoerderForm(DEFAULT_FOERDER_FORM);
     setForm(DEFAULT_FORM);
     setCustomer(DEFAULT_CUSTOMER);
+
+    // ✅ Step 4: Berichtsumfang zurücksetzen
+    setReportVariant("standard");
 
     setFormErrors({});
     setWizardStep(0);
@@ -2102,6 +2123,34 @@ export default function ToolPage() {
                       </div>
                     </div>
 
+                    {/* ✅ Sprint 4.8 Step 4: Berichtsumfang-Auswahl */}
+                    <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="text-sm font-semibold text-slate-900">Berichtsumfang</div>
+                      <div className="mt-2 grid sm:grid-cols-3 gap-2">
+                        {(["kurz", "standard", "detailliert"] as ReportVariant[]).map((v) => {
+                          const active = reportVariant === v;
+                          return (
+                            <button
+                              key={v}
+                              type="button"
+                              onClick={() => setReportVariant(v)}
+                              className={
+                                "rounded-xl border px-3 py-2 text-sm font-semibold " +
+                                (active
+                                  ? "border-slate-900 bg-slate-900 text-white"
+                                  : "border-slate-200 bg-white hover:bg-slate-50")
+                              }
+                            >
+                              {v === "kurz" ? "Kurz" : v === "standard" ? "Standard" : "Detailliert"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Kurz = weniger Bulletpoints/Next Steps · Standard = vollständig · Detailliert = v2-Textversion (ausbaubar).
+                      </div>
+                    </div>
+
                     <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                       <div className="text-sm text-slate-700">
                         <b>Tipp:</b> Erstellen Sie den Bericht direkt nach der Berechnung.
@@ -2206,6 +2255,7 @@ export default function ToolPage() {
                     form={form}
                     result={result}
                     customer={customer}
+                    variant={reportVariant}
                   />
                 </>
               )}
