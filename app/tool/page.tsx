@@ -14,14 +14,32 @@ import {
   Cell,
 } from "recharts";
 
-import { getNarrative } from "@/lib/narratives"; // bleibt fürs UI (Highlights/Leitfaden) wie bisher
-import { getReportText } from "@/lib/reportText";
+import { getNarrative } from "@/lib/narratives"; // UI (Ergebnis-Tab)
+import { getReportText } from "@/lib/reportText"; // Print-Bericht (Popup)
 import type { ReportTextInput } from "@/lib/reportText";
 
 type ScenarioName = "Sehr niedrig" | "Niedrig" | "Experten" | "Hoch" | "Sehr hoch";
 type CarrierFossil = "Erdgas" | "Flüssiggas" | "Heizöl" | "Pellets";
 type CarrierHP = "Strom Stromix" | "Strom Erneuerbar";
 type Role = "eigentuemer" | "vermieter" | "mieter";
+
+interface CustomerInfo {
+  customerName: string;
+  objectName: string;
+  address: string;
+  email: string;
+  phone: string;
+  notes: string;
+}
+
+const DEFAULT_CUSTOMER: CustomerInfo = {
+  customerName: "",
+  objectName: "",
+  address: "",
+  email: "",
+  phone: "",
+  notes: "",
+};
 
 interface FormState {
   heatDemand: number;
@@ -505,12 +523,14 @@ function PrintModal({
   role,
   form,
   result,
+  customer,
 }: {
   open: boolean;
   onClose: () => void;
   role: Role;
   form: FormState;
   result: CalcResult;
+  customer: CustomerInfo;
 }) {
   const totals =
     role === "vermieter"
@@ -586,7 +606,7 @@ function PrintModal({
               type="button"
               className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
               onClick={async () => {
-                // Auf ALLE Bilder warten (Logo etc.)
+                // ✅ Auf ALLE Bilder warten (Logo + ggf. weitere)
                 const imgs = Array.from(document.querySelectorAll<HTMLImageElement>("#printArea img"));
                 await Promise.all(
                   imgs.map(
@@ -616,6 +636,7 @@ function PrintModal({
 
         <div id="printArea" className="report">
           <div className="report-header print-avoid-break">
+            {/* ✅ Pfad: public/logo.png */}
             <img className="report-logo" src="/logo.png" alt="Firmenlogo" />
             <div className="report-head-right">
               <div className="report-title">Heizungs-Vergleich – Bericht</div>
@@ -633,6 +654,58 @@ function PrintModal({
               </div>
             </div>
           </div>
+
+          {/* ✅ Sprint 4.8 Step 3: Kundendaten/Objekt (optional, nur wenn befüllt) */}
+          {(customer.customerName ||
+            customer.objectName ||
+            customer.address ||
+            customer.email ||
+            customer.phone ||
+            customer.notes) && (
+            <div className="report-card print-avoid-break" style={{ marginBottom: 12 }}>
+              <div className="report-h3">Kundendaten & Objekt</div>
+              <table className="report-table">
+                <tbody>
+                  {customer.customerName ? (
+                    <tr>
+                      <th>Kunde</th>
+                      <td>{customer.customerName}</td>
+                    </tr>
+                  ) : null}
+                  {customer.objectName ? (
+                    <tr>
+                      <th>Objekt</th>
+                      <td>{customer.objectName}</td>
+                    </tr>
+                  ) : null}
+                  {customer.address ? (
+                    <tr>
+                      <th>Adresse</th>
+                      <td>{customer.address}</td>
+                    </tr>
+                  ) : null}
+                  {customer.email ? (
+                    <tr>
+                      <th>E-Mail</th>
+                      <td>{customer.email}</td>
+                    </tr>
+                  ) : null}
+                  {customer.phone ? (
+                    <tr>
+                      <th>Telefon</th>
+                      <td>{customer.phone}</td>
+                    </tr>
+                  ) : null}
+                  {customer.notes ? (
+                    <tr>
+                      <th>Notizen</th>
+                      <td style={{ whiteSpace: "pre-wrap" }}>{customer.notes}</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="report-card print-avoid-break">
             <div className="report-h2">{reportText.headline}</div>
@@ -759,6 +832,11 @@ function PrintModal({
 export default function ToolPage() {
   const [tab] = useState<"vergleich">("vergleich");
   const [role, setRole] = useState<Role>("eigentuemer");
+
+  const [customer, setCustomer] = useState<CustomerInfo>(DEFAULT_CUSTOMER);
+  function updateCustomer<K extends keyof CustomerInfo>(key: K, value: string) {
+    setCustomer((prev) => ({ ...prev, [key]: value }));
+  }
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
@@ -1029,6 +1107,7 @@ export default function ToolPage() {
     setRole("eigentuemer");
     setFoerderForm(DEFAULT_FOERDER_FORM);
     setForm(DEFAULT_FORM);
+    setCustomer(DEFAULT_CUSTOMER);
 
     setFormErrors({});
     setWizardStep(0);
@@ -1084,7 +1163,7 @@ export default function ToolPage() {
       savings: perspective.savings,
       totalFossil: perspective.totalFossil,
       payback: perspective.payback,
-    });
+    } as any);
   }, [role, form.years, perspective]);
 
   const chartData = useMemo(() => {
@@ -1127,7 +1206,7 @@ export default function ToolPage() {
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }
 
-  // ✅ Sprint 4.7 Step 3: afterprint -> Popup schließen + Prompt im Ergebnis-Tab
+  // ✅ afterprint -> Popup schließen + Prompt im Ergebnis-Tab
   useEffect(() => {
     const handler = () => {
       if (hasOpenedReport) {
@@ -1246,6 +1325,7 @@ export default function ToolPage() {
           border-bottom: 1px solid #e2e8f0;
           padding: 6px 4px;
           text-align: left;
+          vertical-align: top;
         }
         .report-table th {
           width: 220px;
@@ -1285,7 +1365,7 @@ export default function ToolPage() {
             display: none !important;
           }
 
-          /* ✅ Sprint 4.7 Step 2: Overlay/Modal vollständig print-neutral */
+          /* Overlay/Modal vollständig print-neutral */
           #print-portal-root .print-modal-overlay {
             position: static !important;
             inset: auto !important;
@@ -1419,6 +1499,69 @@ export default function ToolPage() {
                     <div className="text-sm font-semibold text-slate-900">{hint.title}</div>
                     <div className="mt-1 text-xs text-slate-600">{hint.text}</div>
                   </div>
+                </div>
+              </Section>
+
+              {/* ✅ Sprint 4.8 Step 3 */}
+              <Section
+                title="Kundendaten & Objekt (optional)"
+                subtitle="Diese Angaben erscheinen im gedruckten Bericht. Wenn leer, wird nichts angezeigt."
+              >
+                <div className="grid md:grid-cols-2 gap-4">
+                  <Field label="Kundenname">
+                    <input
+                      className={inputClass(false)}
+                      value={customer.customerName}
+                      onChange={(e) => updateCustomer("customerName", e.target.value)}
+                      placeholder="z. B. Max Mustermann"
+                    />
+                  </Field>
+
+                  <Field label="Objekt / Projekt">
+                    <input
+                      className={inputClass(false)}
+                      value={customer.objectName}
+                      onChange={(e) => updateCustomer("objectName", e.target.value)}
+                      placeholder="z. B. EFH / MFH / Adresse / Projektname"
+                    />
+                  </Field>
+
+                  <Field label="Adresse">
+                    <input
+                      className={inputClass(false)}
+                      value={customer.address}
+                      onChange={(e) => updateCustomer("address", e.target.value)}
+                      placeholder="Straße, PLZ Ort"
+                    />
+                  </Field>
+
+                  <Field label="E-Mail (optional)">
+                    <input
+                      className={inputClass(false)}
+                      value={customer.email}
+                      onChange={(e) => updateCustomer("email", e.target.value)}
+                      placeholder="name@example.com"
+                    />
+                  </Field>
+
+                  <Field label="Telefon (optional)">
+                    <input
+                      className={inputClass(false)}
+                      value={customer.phone}
+                      onChange={(e) => updateCustomer("phone", e.target.value)}
+                      placeholder="+49 ..."
+                    />
+                  </Field>
+
+                  <Field label="Notizen (optional)" hint="z. B. Besonderheiten, Randbedingungen">
+                    <textarea
+                      className={inputClass(false)}
+                      value={customer.notes}
+                      onChange={(e) => updateCustomer("notes", e.target.value)}
+                      placeholder="Freitext…"
+                      rows={3}
+                    />
+                  </Field>
                 </div>
               </Section>
 
@@ -1943,7 +2086,7 @@ export default function ToolPage() {
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
                         <div className="text-sm font-semibold text-slate-900">Beratungs-Highlights</div>
                         <ul className="mt-2 list-disc ml-5 text-sm text-slate-700 space-y-1">
-                          {narrativeForUI.highlights.map((h, i) => (
+                          {narrativeForUI.highlights?.map((h: string, i: number) => (
                             <li key={i}>{h}</li>
                           ))}
                         </ul>
@@ -1952,7 +2095,7 @@ export default function ToolPage() {
                       <div className="rounded-2xl border border-slate-200 bg-white p-4">
                         <div className="text-sm font-semibold text-slate-900">Beratungs-Leitfaden</div>
                         <ol className="mt-2 list-decimal ml-5 text-sm text-slate-700 space-y-1">
-                          {narrativeForUI.advisorSteps.map((s, i) => (
+                          {narrativeForUI.advisorSteps?.map((s: string, i: number) => (
                             <li key={i}>{s}</li>
                           ))}
                         </ol>
@@ -2062,6 +2205,7 @@ export default function ToolPage() {
                     role={role}
                     form={form}
                     result={result}
+                    customer={customer}
                   />
                 </>
               )}
